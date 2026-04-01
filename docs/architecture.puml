@@ -1,0 +1,91 @@
+@startuml
+title Services Architecture - 4-Tier 
+
+skinparam backgroundColor #FEFEFE
+skinparam DefaultFontSize 10
+skinparam componentStyle rectangle
+
+' --------------------------
+' TIER 1
+' --------------------------
+package "TIER 1: Client Layer" #E8F4F8 {
+    actor Client as "Web Client"
+}
+
+' --------------------------
+' TIER 2
+' --------------------------
+package "TIER 2: API Gateway (8080)" #FFF4E6 {
+    component Gateway as "Spring Cloud Gateway MVC"
+}
+
+' --------------------------
+' TIER 3
+' --------------------------
+package "TIER 3: Services Layer" #E8F8E8 {
+    together {
+        component Tenant as "Tenant\nREST\n8084" #FFE1E1
+        component Auth as "Auth\nREST\n8085" #FFE1E1
+        component User as "User\nREST\n8081" #FFE1E1
+        component NotenModul as "Noten-Modul\nGraphql\n8082" #FFE1E1
+        component Notenber as "Notenberechnung\nREST\n8083" #FFE1E1
+    }
+}
+
+' --------------------------
+' TIER 4
+' --------------------------
+package "TIER 4: Data Layer" #F8E8E8 {
+    together {
+        database TenantDB as "HashMap\nTenant" #FFD4D4
+        database AuthDB as "HashMap\nAuth" #FFD4D4
+        database UserDB as "HashMap\nUser" #FFD4D4
+        database H2 as "H2 DB\nGraphQL" #D4FFD4
+        database NotenDB as "HashMap\nGrade" #FFD4D4
+    }
+}
+
+' --------------------------
+' Client to Gateway
+' --------------------------
+Client -down-> Gateway : HTTP
+
+' --------------------------
+' Gateway to Services
+' --------------------------
+Gateway -down-> Tenant
+Gateway -down-> Auth
+Gateway -down-> User
+Gateway -down-> NotenModul
+Gateway -down-> Notenber
+
+' --------------------------
+' Services to Databases
+' --------------------------
+Tenant -down-> TenantDB
+Auth -down-> AuthDB
+User -down-> UserDB
+NotenModul -down-> H2
+Notenber -down-> NotenDB
+
+' --------------------------
+' Service Communication
+' --------------------------
+User <.left.> Auth : REST
+User .left.> Tenant : REST
+Notenber .right.> NotenModul : GraphQL
+NotenModul .left.> User : REST
+
+' --------------------------
+' Horizontal Layout Order
+' --------------------------
+Tenant -[hidden]right- Auth
+Auth -[hidden]right- User
+User -[hidden]right- NotenModul
+NotenModul -[hidden]right- Notenber
+
+TenantDB -[hidden]right- AuthDB
+AuthDB -[hidden]right- UserDB
+UserDB -[hidden]right- H2
+H2 -[hidden]right- NotenDB
+@enduml

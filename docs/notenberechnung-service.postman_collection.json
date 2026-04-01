@@ -1,0 +1,1514 @@
+{
+  "info": {
+    "_postman_id": "nb-service-001",
+    "name": "Notenberechnung-Service",
+    "description": "Vollständige Postman Collection für den Notenberechnung-Service.\n\n**Features:**\n- Gewichtete Gesamtnotenberechnung nach Prüfungsordnung (PO)\n- Modul-Verwaltung (CRUD + Aktiv/Inaktiv-Status)\n- Multi-Tenant-Unterstützung via JWT\n- GraphQL-Integration mit dem Noten-Modul-Service\n- Rollenbasierte Tests (Admin, Prüfungsamt, Lehrender, Student)\n\n**Rollen:**\n- ADMIN: Vollzugriff auf alle Operationen\n- PRUEFUNGSAMT: Module anlegen/bearbeiten/löschen, Noten berechnen\n- STUDENT: Eigene Gesamtnote berechnen lassen\n\n**Prüfungsordnungen (POs):**\n- MA_AF: Master Accounting and Finance\n- BA_LVM: Bachelor Luftverkehrsmanagement\n\n**Base URL:** http://localhost:9090\n\n**Berechnungsformel:**\nGesamtnote = Σ(Note × Gewicht) / Σ(Gewicht)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "2.0.0"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8083",
+      "type": "string",
+      "description": "Base URL des Notenberechnung-Service"
+    },
+    {
+      "key": "auth_service_url",
+      "value": "http://localhost:8085/api/v1/auth/login",
+      "type": "string",
+      "description": "URL zum Auth-Service für Token-Generierung"
+    },
+    {
+      "key": "po_id",
+      "value": "Accounting_and_Finance_MA",
+      "type": "string",
+      "description": "Standard Prüfungsordnung ID"
+    },
+    {
+      "key": "admin_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "pruefungsamt_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "lehrender_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "student_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "test_modul_id",
+      "value": "99",
+      "type": "string",
+      "description": "ID für Test-Modul bei CRUD-Operationen"
+    },
+    {
+      "key": "test_matrikelnummer",
+      "value": "12345678",
+      "type": "string",
+      "description": "Test-Matrikelnummer für Studenten-Abfragen"
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Setup - Authentication",
+      "description": "Login-Requests für alle Rollen. Führen Sie diese zuerst aus, um die JWT-Tokens zu erhalten.",
+      "item": [
+        {
+          "name": "Bootstrap All Tokens",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Login all users sequentially and store tokens",
+                  "const base = pm.collectionVariables.get('auth_service_url') || 'http://localhost:8081/api/auth/login';",
+                  "const users = [",
+                  "  {key:'admin_token', email:'admin@university.de', password:'AdminPassword123!'},",
+                  "  {key:'pruefungsamt_token', email:'pruefungsamt@university.de', password:'PruefungPassword123!'},",
+                  "  {key:'lehrender_token', email:'lehrender@university.de', password:'LehrenderPassword123!'},",
+                  "  {key:'student_token', email:'student@university.de', password:'StudentPassword123!'}",
+                  "];",
+                  "function next(i){",
+                  "  if(i>=users.length){ return; }",
+                  "  const u = users[i];",
+                  "  pm.sendRequest({",
+                  "    url: base, method:'POST',",
+                  "    header:{'Content-Type':'application/json'},",
+                  "    body:{ mode:'raw', raw: JSON.stringify({ email:u.email, password:u.password }) }",
+                  "  }, (err, res)=>{",
+                  "    try {",
+                  "      if(!err && res && (res.code===200 || res.code===201)){",
+                  "        const j = res.json();",
+                  "        if(j && j.token){ pm.collectionVariables.set(u.key, j.token); console.log(u.key + ' gespeichert'); }",
+                  "      }",
+                  "    } catch(e) { console.log('Error:', e); }",
+                  "    next(i+1);",
+                  "  });",
+                  "}",
+                  "next(0);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Tokens wurden initialisiert', function(){",
+                  "    // Tokens werden asynchron gesetzt, dieser Test ist optional",
+                  "    console.log('Bootstrap abgeschlossen');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/",
+            "description": "Führt automatisch Login für alle Rollen durch und speichert die Tokens in Collection Variables."
+          }
+        },
+        {
+          "name": "Login as Admin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    const jsonData = pm.response.json();",
+                  "    if (jsonData.token) {",
+                  "        pm.collectionVariables.set('admin_token', jsonData.token);",
+                  "        console.log('Admin Token gespeichert');",
+                  "    }",
+                  "    pm.test('Login erfolgreich', function() {",
+                  "        pm.expect(jsonData.token).to.be.a('string');",
+                  "    });",
+                  "    pm.test('ADMIN Rolle vorhanden', function() {",
+                  "        pm.expect(jsonData.roles).to.include('ADMIN');",
+                  "    });",
+                  "} else {",
+                  "    pm.test('Login fehlgeschlagen', function() {",
+                  "        pm.expect.fail('Login fehlgeschlagen mit Status ' + pm.response.code);",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@university.de\",\n  \"password\": \"AdminPassword123!\"\n}"
+            },
+            "url": "{{auth_service_url}}",
+            "description": "Login als Administrator - Vollzugriff auf alle Operationen"
+          }
+        },
+        {
+          "name": "Login as Prüfungsamt",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    const jsonData = pm.response.json();",
+                  "    if (jsonData.token) {",
+                  "        pm.collectionVariables.set('pruefungsamt_token', jsonData.token);",
+                  "        console.log('Prüfungsamt Token gespeichert');",
+                  "    }",
+                  "    pm.test('Login erfolgreich', function() {",
+                  "        pm.expect(jsonData.token).to.be.a('string');",
+                  "    });",
+                  "    pm.test('PRUEFUNGSAMT Rolle vorhanden', function() {",
+                  "        pm.expect(jsonData.roles).to.include('PRUEFUNGSAMT');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"pruefungsamt@university.de\",\n  \"password\": \"PruefungPassword123!\"\n}"
+            },
+            "url": "{{auth_service_url}}",
+            "description": "Login als Prüfungsamt - Modulverwaltung, Notenberechnung"
+          }
+        },
+        {
+          "name": "Login as Lehrender",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    const jsonData = pm.response.json();",
+                  "    if (jsonData.token) {",
+                  "        pm.collectionVariables.set('lehrender_token', jsonData.token);",
+                  "        console.log('Lehrender Token gespeichert');",
+                  "    }",
+                  "    pm.test('Login erfolgreich', function() {",
+                  "        pm.expect(jsonData.token).to.be.a('string');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"lehrender@university.de\",\n  \"password\": \"LehrenderPassword123!\"\n}"
+            },
+            "url": "{{auth_service_url}}",
+            "description": "Login als Lehrender"
+          }
+        },
+        {
+          "name": "Login as Student",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    const jsonData = pm.response.json();",
+                  "    if (jsonData.token) {",
+                  "        pm.collectionVariables.set('student_token', jsonData.token);",
+                  "        console.log('Student Token gespeichert');",
+                  "    }",
+                  "    pm.test('Login erfolgreich', function() {",
+                  "        pm.expect(jsonData.token).to.be.a('string');",
+                  "    });",
+                  "    pm.test('STUDENT Rolle vorhanden', function() {",
+                  "        pm.expect(jsonData.roles).to.include('STUDENT');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"student@university.de\",\n  \"password\": \"StudentPassword123!\"\n}"
+            },
+            "url": "{{auth_service_url}}",
+            "description": "Login als Student - Eigene Gesamtnote einsehen"
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Module Management (Prüfungsamt)",
+      "description": "CRUD-Operationen für Module nach Prüfungsordnung.\n\n**User Stories:**\n- Prüfungsamt: neue Module anlegen\n- Prüfungsamt: Module aktualisieren (Name, ECTS, Gewichtung)\n- Prüfungsamt: Module löschen\n- Prüfungsamt: Module aktivieren/deaktivieren\n- Prüfungsamt: nur aktive Module einer Prüfungsordnung anzeigen",
+      "item": [
+        {
+          "name": "List All Modules (MA_AF)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response is an array', function() {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test('Modules have required fields', function() {",
+                  "    const jsonData = pm.response.json();",
+                  "    if(jsonData.length > 0) {",
+                  "        pm.expect(jsonData[0]).to.have.property('modulId');",
+                  "        pm.expect(jsonData[0]).to.have.property('modulName');",
+                  "        pm.expect(jsonData[0]).to.have.property('gewichtung');",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/{{po_id}}/modules",
+            "description": "Gibt alle Module für die Prüfungsordnung MA_AF zurück (aktiv und inaktiv).\n\n**User Story:** Prüfungsamt: Ich möchte alle Module einer Prüfungsordnung einsehen."
+          }
+        },
+        {
+          "name": "List All Modules (BA_LVM)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response is an array', function() {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/Luftverkehrsmanagement_-_Aviation_Management_dual_BA/modules",
+            "description": "Gibt alle Module für die Prüfungsordnung BA_LVM (Bachelor Luftverkehrsmanagement) zurück."
+          }
+        },
+        {
+          "name": "List Active Modules Only",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('All modules are active', function() {",
+                  "    const jsonData = pm.response.json();",
+                  "    jsonData.forEach(function(module) {",
+                  "        pm.expect(module.active).to.be.true;",
+                  "    });",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/{{po_id}}/modules/active",
+            "description": "Gibt nur aktive Module für die Prüfungsordnung zurück.\n\n**User Story:** Prüfungsamt: nur aktive Module einer Prüfungsordnung anzeigen können, damit Dropdowns/Formulare nur relevante Module anzeigen."
+          }
+        },
+        {
+          "name": "Get Single Module",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Module has all required fields', function() {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('modulId');",
+                  "    pm.expect(jsonData).to.have.property('modulName');",
+                  "    pm.expect(jsonData).to.have.property('gewichtung');",
+                  "    pm.expect(jsonData).to.have.property('active');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/{{po_id}}/modules/1",
+            "description": "Gibt ein einzelnes Modul anhand der Modul-ID zurück.\n\n**User Story:** Student: Details zu einem bestimmten Modul abrufen, damit ich Informationen wie ECTS, Gewichtung und Beschreibung einsehen kann."
+          }
+        },
+        {
+          "name": "Create New Module",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', function() {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Module created with correct data', function() {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.modulId).to.equal(99);",
+                  "    pm.expect(jsonData.modulName).to.equal('Test Modul - Neues Wahlmodul');",
+                  "    pm.expect(jsonData.gewichtung).to.equal(2.0);",
+                  "    pm.expect(jsonData.active).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"modulId\": 99,\n  \"modulName\": \"Test Modul - Neues Wahlmodul\",\n  \"gewichtung\": 2.0,\n  \"active\": true\n}"
+            },
+            "url": "{{base_url}}/api/{{po_id}}/modules",
+            "description": "Erstellt ein neues Modul. Die Modul-ID muss eindeutig sein.\n\n**User Story:** Prüfungsamt: neue Module anlegen, damit neue Lehrveranstaltungen im System verfügbar sind."
+          }
+        },
+        {
+          "name": "Update Module (Name & Gewichtung)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Module updated correctly', function() {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.modulName).to.equal('Aktualisierter Modulname');",
+                  "    pm.expect(jsonData.gewichtung).to.equal(3.0);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"modulName\": \"Aktualisierter Modulname\",\n  \"gewichtung\": 3.0\n}"
+            },
+            "url": "{{base_url}}/api/{{po_id}}/modules/99",
+            "description": "Aktualisiert den Namen und/oder die Gewichtung eines bestehenden Moduls.\n\n**User Story:** Prüfungsamt: Module aktualisieren, damit Änderungen an Modulnamen, ECTS oder Gewichtung vorgenommen werden können."
+          }
+        },
+        {
+          "name": "Set Module INACTIVE",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Module is now inactive', function() {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.active).to.be.false;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": false\n}"
+            },
+            "url": "{{base_url}}/api/{{po_id}}/modules/99/active",
+            "description": "Setzt ein Modul auf inaktiv. Inaktive Module können nicht in die Notenberechnung einbezogen werden.\n\n**User Story:** Prüfungsamt: Module aktivieren/deaktivieren, damit Module temporär aus der Berechnung ausgeschlossen werden können, ohne sie zu löschen."
+          }
+        },
+        {
+          "name": "Set Module ACTIVE",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Module is now active', function() {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.active).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"active\": true\n}"
+            },
+            "url": "{{base_url}}/api/{{po_id}}/modules/99/active",
+            "description": "Setzt ein Modul auf aktiv.\n\n**User Story:** Prüfungsamt: Nutzer im eigenen Fachbereich aktivieren, damit deaktivierte Accounts wieder freigeschaltet werden können."
+          }
+        },
+        {
+          "name": "Delete Module",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 204', function() {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/{{po_id}}/modules/99",
+            "description": "Löscht ein Modul vollständig.\n\n**User Story:** Prüfungsamt: Module löschen, damit nicht mehr benötigte Module entfernt werden können."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Grade Calculation",
+      "description": "Endpunkte zur Berechnung der gewichteten Gesamtnote.\n\n**User Stories:**\n- Student: die automatisch berechnete Gesamtnote je Studiengang gemäß PO sehen\n- Student: meinen gewichteten Gesamtschnitt jederzeit aktuell sehen\n- Prüfungsamt: die Gewichtungen von Modulnoten gemäß PO pro Studiengang anpassen",
+      "item": [
+        {
+          "name": "Calculate Grades - MA_AF Full Example",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has required fields', function() {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('poId');",
+                  "    pm.expect(jsonData).to.have.property('gesamtNote');",
+                  "    pm.expect(jsonData).to.have.property('anzahlModule');",
+                  "});",
+                  "",
+                  "pm.test('Gesamtnote is in valid range (1.0-5.0)', function() {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.gesamtNote).to.be.at.least(1.0);",
+                  "    pm.expect(jsonData.gesamtNote).to.be.at.most(5.0);",
+                  "});",
+                  "",
+                  "pm.test('anzahlModule is 12', function() {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.anzahlModule).to.equal(12);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{student_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grades\": [\n    { \"modulId\": \"1\", \"note\": 1.3 },\n    { \"modulId\": \"2\", \"note\": 1.7 },\n    { \"modulId\": \"3\", \"note\": 2.0 },\n    { \"modulId\": \"4\", \"note\": 1.3 },\n    { \"modulId\": \"5\", \"note\": 1.0 },\n    { \"modulId\": \"6\", \"note\": 2.3 },\n    { \"modulId\": \"7\", \"note\": 1.7 },\n    { \"modulId\": \"8\", \"note\": 2.0 },\n    { \"modulId\": \"9\", \"note\": 1.3 },\n    { \"modulId\": \"10\", \"note\": 1.7 },\n    { \"modulId\": \"11\", \"note\": 2.0 },\n    { \"modulId\": \"12\", \"note\": 1.0 }\n  ]\n}"
+            },
+            "url": "{{base_url}}/api/Accounting_and_Finance_MA/grades/calculate",
+            "description": "Berechnet die Gesamtnote für den Master Accounting and Finance mit allen 12 Modulen.\n\n**User Story:** Student: die automatisch berechnete Gesamtnote je Studiengang gemäß PO sehen, damit ich meine Abschlussrelevanz nachvollziehen kann."
+          }
+        },
+        {
+          "name": "Calculate Grades - MA_AF Partial (1. Semester)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('anzahlModule is 4', function() {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.anzahlModule).to.equal(4);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{student_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grades\": [\n    { \"modulId\": \"1\", \"note\": 1.3 },\n    { \"modulId\": \"2\", \"note\": 2.0 },\n    { \"modulId\": \"3\", \"note\": 1.7 },\n    { \"modulId\": \"4\", \"note\": 2.3 }\n  ]\n}"
+            },
+            "url": "{{base_url}}/api/Accounting_and_Finance_MA/grades/calculate",
+            "description": "Berechnet die Zwischennote für die ersten 4 Module des MA_AF (1. Semester).\n\n**User Story:** Student: meinen gewichteten Gesamtschnitt jederzeit aktuell sehen, damit ich weiß, ob ich meinen angestrebten Abschluss-Schnitt erreiche."
+          }
+        },
+        {
+          "name": "Calculate Grades - BA_LVM Example",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('PO is BA_LVM', function() {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.poId).to.equal('Luftverkehrsmanagement_-_Aviation_Management_dual_BA');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{student_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grades\": [\n    { \"modulId\": \"1\", \"note\": 2.0 },\n    { \"modulId\": \"2\", \"note\": 1.7 },\n    { \"modulId\": \"3\", \"note\": 2.3 },\n    { \"modulId\": \"4\", \"note\": 1.0 },\n    { \"modulId\": \"5\", \"note\": 1.3 },\n    { \"modulId\": \"30\", \"note\": 1.0 }\n  ]\n}"
+            },
+            "url": "{{base_url}}/api/Luftverkehrsmanagement_-_Aviation_Management_dual_BA/grades/calculate",
+            "description": "Berechnet die Gesamtnote für BA_LVM mit einigen Modulen inkl. Bachelor-Arbeit (Modul 30, Gewichtung 5).\n\n**User Story:** Student: bei mehreren Studiengängen die Module all meiner Studiengänge sehen, damit ich meine gesamte Studienleistung überblicken kann."
+          }
+        },
+        {
+          "name": "Calculate Grades - With 'Modul' Prefix",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Calculation works with Modul prefix', function() {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.gesamtNote).to.be.a('number');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{student_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grades\": [\n    { \"modulId\": \"Modul 1\", \"note\": 1.5 },\n    { \"modulId\": \"Modul 2\", \"note\": 2.0 }\n  ]\n}"
+            },
+            "url": "{{base_url}}/api/{{po_id}}/grades/calculate",
+            "description": "Zeigt, dass sowohl '1' als auch 'Modul 1' als modulId akzeptiert wird."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Student Grade Calculation (via GraphQL)",
+      "description": "Berechnet Noten für Studenten über GraphQL-Integration mit dem Noten-Modul-Service.\n\n**User Stories:**\n- Student: meine zugeordneten Module und Noten einsehen\n- Student: meine kompletten Studierenden-Informationen inkl. Notendurchschnitt und Anzahl bestandener Module sehen",
+      "item": [
+        {
+          "name": "Calculate Student Grades by Matrikelnummer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has student data', function() {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('matrikelnummer');",
+                  "    pm.expect(jsonData).to.have.property('gesamtNote');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{student_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/{{po_id}}/grades/student?matrikelnummer={{test_matrikelnummer}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "{{po_id}}", "grades", "student"],
+              "query": [
+                {
+                  "key": "matrikelnummer",
+                  "value": "{{test_matrikelnummer}}"
+                }
+              ]
+            },
+            "description": "Berechnet die Gesamtnote für einen Studierenden anhand der Matrikelnummer.\nHolt Noten vom Noten-Modul-Service via GraphQL.\n\n**User Story:** Student: meine zugeordneten Module und Noten einsehen, damit ich meine aktuellen Leistungsstände nachvollziehen kann."
+          }
+        },
+        {
+          "name": "Calculate Authenticated Student Grades",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has calculation result', function() {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('gesamtNote');",
+                  "    pm.expect(jsonData).to.have.property('status');",
+                  "    pm.expect(jsonData.status).to.equal('Berechnung erfolgreich');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{student_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/grades/student",
+            "description": "Berechnet die Gesamtnote für den authentifizierten Studenten.\nDie Matrikelnummer wird automatisch aus dem JWT Token extrahiert.\n\n**User Story:** Student: meine kompletten Studierenden-Informationen inkl. Notendurchschnitt und Anzahl bestandener Module sehen, damit ich einen vollständigen Überblick über meinen Studienfortschritt habe."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Admin Operations",
+      "description": "Operationen die nur für Administratoren verfügbar sind.\n\n**User Stories:**\n- Administrator: alle Nutzer verwalten\n- Administrator: Fachbereiche anlegen\n- Administrator: neue Prüfungsamtsnutzer erstellen",
+      "item": [
+        {
+          "name": "List All Modules (Admin - Cross-Tenant)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Admin can see all modules', function() {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/{{po_id}}/modules",
+            "description": "Admin kann alle Module sehen (auch über Tenant-Grenzen hinweg).\n\n**User Story:** Administrator: alle Nutzer verwalten, damit der Systembetrieb technisch und organisatorisch gesichert bleibt."
+          }
+        },
+        {
+          "name": "Create Module (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', function() {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Module created successfully', function() {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.modulId).to.equal(100);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"modulId\": 100,\n  \"modulName\": \"Admin-erstelltes Modul\",\n  \"gewichtung\": 4.0,\n  \"active\": true\n}"
+            },
+            "url": "{{base_url}}/api/{{po_id}}/modules",
+            "description": "Admin erstellt ein neues Modul."
+          }
+        },
+        {
+          "name": "Delete Module (Admin - Cleanup)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 204', function() {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/{{po_id}}/modules/100",
+            "description": "Admin löscht das Test-Modul (Cleanup)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Error Cases",
+      "description": "Testfälle für Fehlersituationen und Validierung.",
+      "item": [
+        {
+          "name": "Calculate - Empty Grades List",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400', function() {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{student_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grades\": []\n}"
+            },
+            "url": "{{base_url}}/api/{{po_id}}/grades/calculate",
+            "description": "Erwartet HTTP 400: grades/notenListe ist leer"
+          }
+        },
+        {
+          "name": "Calculate - Invalid Grade (too high)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400', function() {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{student_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grades\": [\n    { \"modulId\": \"1\", \"note\": 6.0 }\n  ]\n}"
+            },
+            "url": "{{base_url}}/api/{{po_id}}/grades/calculate",
+            "description": "Erwartet HTTP 400: Note muss zwischen 1.0 und 5.0 liegen."
+          }
+        },
+        {
+          "name": "Calculate - Invalid Grade (too low)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400', function() {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{student_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grades\": [\n    { \"modulId\": \"1\", \"note\": 0.5 }\n  ]\n}"
+            },
+            "url": "{{base_url}}/api/{{po_id}}/grades/calculate",
+            "description": "Erwartet HTTP 400: Note muss zwischen 1.0 und 5.0 liegen."
+          }
+        },
+        {
+          "name": "Calculate - Unknown Module",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400', function() {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{student_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grades\": [\n    { \"modulId\": \"999\", \"note\": 2.0 }\n  ]\n}"
+            },
+            "url": "{{base_url}}/api/{{po_id}}/grades/calculate",
+            "description": "Erwartet HTTP 400: Modul nicht gefunden."
+          }
+        },
+        {
+          "name": "Get Module - Not Found",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 404', function() {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/{{po_id}}/modules/999",
+            "description": "Erwartet HTTP 404: Modul nicht gefunden."
+          }
+        },
+        {
+          "name": "Create Module - Duplicate ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 409 (Conflict)', function() {",
+                  "    pm.response.to.have.status(409);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"modulId\": 1,\n  \"modulName\": \"Duplikat\",\n  \"gewichtung\": 1.0\n}"
+            },
+            "url": "{{base_url}}/api/{{po_id}}/modules",
+            "description": "Erwartet HTTP 409: Modul mit dieser ID existiert bereits."
+          }
+        },
+        {
+          "name": "Request without Authorization",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 401 or 403', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([401, 403]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{base_url}}/api/{{po_id}}/modules",
+            "description": "Erwartet HTTP 401/403: Keine Authentifizierung"
+          }
+        },
+        {
+          "name": "Request with Invalid Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 401 or 403', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([401, 403]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer invalid.token.here"
+              }
+            ],
+            "url": "{{base_url}}/api/{{po_id}}/modules",
+            "description": "Erwartet HTTP 401/403: Ungültiger JWT Token"
+          }
+        },
+        {
+          "name": "Unknown PO ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 404 or empty array', function() {",
+                  "    // Je nach Implementierung: 404 oder leere Liste",
+                  "    if(pm.response.code === 200) {",
+                  "        const jsonData = pm.response.json();",
+                  "        pm.expect(jsonData).to.be.an('array').that.is.empty;",
+                  "    } else {",
+                  "        pm.response.to.have.status(404);",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/UNKNOWN_PO/modules",
+            "description": "Unbekannte Prüfungsordnung"
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Role-Based Access Tests",
+      "description": "Tests für rollenbasierte Zugriffssteuerung.\n\n**User Stories:**\n- Student: nur die Module der Studiengänge sehen, in denen ich eingeschrieben bin\n- Lehrender: eine Liste aller Studierenden der Module sehen, die mir zugeordnet sind",
+      "item": [
+        {
+          "name": "Student - Calculate Own Grades (Allowed)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Student can calculate grades', function() {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.gesamtNote).to.be.a('number');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{student_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"grades\": [\n    { \"modulId\": \"1\", \"note\": 1.7 },\n    { \"modulId\": \"2\", \"note\": 2.0 }\n  ]\n}"
+            },
+            "url": "{{base_url}}/api/{{po_id}}/grades/calculate",
+            "description": "Student darf seine eigene Gesamtnote berechnen lassen.\n\n**User Story:** Student: meine Noten inkl. deren Status (z.B. vorläufig/validiert) einsehen, damit ich Klarheit über die Verbindlichkeit meiner Noten habe."
+          }
+        },
+        {
+          "name": "Student - View Active Modules (Allowed)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{student_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/{{po_id}}/modules/active",
+            "description": "Student darf aktive Module einsehen.\n\n**User Story:** Student: nur die Module der Studiengänge sehen, in denen ich eingeschrieben bin, damit meine Ansicht korrekt und berechtigt ist."
+          }
+        },
+        {
+          "name": "Lehrender - View Modules (Allowed)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{lehrender_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/{{po_id}}/modules",
+            "description": "Lehrender darf Module einsehen.\n\n**User Story:** Lehrender: eine Liste aller Studierenden der Module sehen, die mir zugeordnet sind, damit ich weiß, für wen ich Noten eintragen muss."
+          }
+        },
+        {
+          "name": "Prüfungsamt - Create Module (Allowed)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', function() {",
+                  "    pm.response.to.have.status(201);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"modulId\": 88,\n  \"modulName\": \"Prüfungsamt Test Modul\",\n  \"gewichtung\": 2.5,\n  \"active\": true\n}"
+            },
+            "url": "{{base_url}}/api/{{po_id}}/modules",
+            "description": "Prüfungsamt darf Module anlegen.\n\n**User Story:** Prüfungsamt: neue Module anlegen, damit neue Lehrveranstaltungen im System verfügbar sind."
+          }
+        },
+        {
+          "name": "Prüfungsamt - Delete Module (Cleanup)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 204', function() {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/{{po_id}}/modules/88",
+            "description": "Prüfungsamt löscht das Test-Modul (Cleanup)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Multi-Tenant Tests",
+      "description": "Tests für Multi-Tenant-Funktionalität.\n\n**User Stories:**\n- Administrator: Fachbereiche anlegen, einsehen und auflisten\n- Administrator: Fachbereiche temporär sperren können",
+      "item": [
+        {
+          "name": "List Modules - Tenant FB3 (MA_AF)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response is an array', function() {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/Accounting_and_Finance_MA/modules",
+            "description": "Liste Module für Prüfungsordnung MA_AF (Tenant: Fachbereich 3)."
+          }
+        },
+        {
+          "name": "List Modules - Tenant FB2 (BA_LVM)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_token}}"
+              }
+            ],
+            "url": "{{base_url}}/api/Luftverkehrsmanagement_-_Aviation_Management_dual_BA/modules",
+            "description": "Liste Module für Prüfungsordnung BA_LVM (Tenant: Fachbereich 2)."
+          }
+        }
+      ]
+    }
+  ]
+}

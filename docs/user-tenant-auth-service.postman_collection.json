@@ -1,0 +1,3964 @@
+{
+  "info": {
+    "_postman_id": "a0f76fd2-6b7b-4a7a-8bbf-e8ee82fa4f02",
+    "name": "user-tenant-auth-service-404-brain-not-found",
+    "description": "Umfassende Test-Suite für user-tenant-auth-service mit:\n- Alle Rollen-Authentifizierungen\n- Positive und Negative Tests\n- Multi-Tenant & Multi-Studiengang Tests\n- Berechtigungstests\n- Fehlerfall-Tests (falsche Passwörter, falsche URLs, etc.)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "50966709"
+  },
+  "item": [
+    {
+      "name": "0. Setup - Bootstrap Tokens",
+      "item": [
+        {
+          "name": "Bootstrap Tokens",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Login all users sequentially and store tokens",
+                  "const base = pm.collectionVariables.get('base_url') || pm.environment.get('base_url') || pm.variables.get('base_url') || '';",
+                  "const url = base + '/api/v1/auth/login';",
+                  "const users = [",
+                  "  {key:'admin_token', email:'admin@university.de', password:'AdminPassword123!'},",
+                  "  {key:'pruefungsamt_fb3_token', email:'pruefungsamt@university.de', password:'PruefungPassword123!'},",
+                  "  {key:'pruefungsamt_fb2_token', email:'pruefungsamt-fb2@university.de', password:'PruefungFb2Password123!'},",
+                  "  {key:'student_fb3_token', email:'student@university.de', password:'StudentPassword123!'},",
+                  "  {key:'student_fb2_token', email:'informatiker@university.de', password:'InformatikPassword123!'},",
+                  "  {key:'student_multi_token', email:'multi.student@university.de', password:'MultiStudent123!'},",
+                  "  {key:'lehrender_token', email:'lehrender@university.de', password:'LehrenderPassword123!'}",
+                  "];",
+                  "function next(i){",
+                  "  if(i>=users.length){ return; }",
+                  "  const u = users[i];",
+                  "  pm.sendRequest({",
+                  "    url, method:'POST',",
+                  "    header:{'Content-Type':'application/json'},",
+                  "    body:{ mode:'raw', raw: JSON.stringify({ email:u.email, password:u.password }) }",
+                  "  }, (err, res)=>{",
+                  "    try {",
+                  "      if(!err && res && res.code===200){",
+                  "        const j = res.json();",
+                  "        if(j && j.token){ pm.collectionVariables.set(u.key, j.token); }",
+                  "      }",
+                  "    } catch(e) {}",
+                  "    next(i+1);",
+                  "  });",
+                  "}",
+                  "next(0);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Admin token captured', function(){ pm.expect(pm.collectionVariables.get('admin_token')).to.be.a('string'); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                ""
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "1. Authentication - All Roles",
+      "item": [
+        {
+          "name": "Login - ADMIN (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201 (Created)', function() {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Response has token', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.token).to.be.a('string');",
+                  "    pm.collectionVariables.set('admin_token', jsonData.token);",
+                  "});",
+                  "",
+                  "pm.test('Save user ID', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    if (jsonData.userId) {",
+                  "        pm.collectionVariables.set('admin_id', jsonData.userId);",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('User has ADMIN role', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.roles).to.include('ADMIN');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"admin@university.de\",\n    \"password\": \"AdminPassword123!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login - ADMIN (Wrong Password)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 401 or 403', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([401, 403]);",
+                  "});",
+                  "",
+                  "pm.test('Response contains error message', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.message || jsonData.error).to.exist;",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"admin@university.de\",\n    \"password\": \"WrongPassword123!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login - ADMIN (Wrong Email)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 401 or 404', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([401, 404]);",
+                  "});",
+                  "",
+                  "pm.test('Response contains error', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.message || jsonData.error).to.exist;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"wrong.admin@university.de\",\n    \"password\": \"AdminPassword123!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login - PRUEFUNGSAMT FB3 (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201 (Created)', function() {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Response has token', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.token).to.be.a('string');",
+                  "    pm.collectionVariables.set('pruefungsamt_fb3_token', jsonData.token);",
+                  "});",
+                  "",
+                  "pm.test('Save user ID', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    if (jsonData.userId) {",
+                  "        pm.collectionVariables.set('pruefungsamt_fb3_id', jsonData.userId);",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('User has PRUEFUNGSAMT role', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.roles).to.include('PRUEFUNGSAMT');",
+                  "});",
+                  "",
+                  "pm.test('User has tenant information', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('email');",
+                  "    pm.expect(jsonData).to.have.property('token');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"pruefungsamt@university.de\",\n    \"password\": \"PruefungPassword123!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login - PRUEFUNGSAMT FB3 (Wrong Password)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 401 or 403', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([401, 403]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"pruefungsamt@university.de\",\n    \"password\": \"WrongPassword!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login - PRUEFUNGSAMT FB2 (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201 (Created)', function() {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Response has token', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.token).to.be.a('string');",
+                  "    pm.collectionVariables.set('pruefungsamt_fb2_token', jsonData.token);",
+                  "});",
+                  "",
+                  "pm.test('Save user ID', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    if (jsonData.userId) {",
+                  "        pm.collectionVariables.set('pruefungsamt_fb2_id', jsonData.userId);",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('User has PRUEFUNGSAMT role', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.roles).to.include('PRUEFUNGSAMT');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"pruefungsamt-fb2@university.de\",\n    \"password\": \"PruefungFb2Password123!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login - PRUEFUNGSAMT FB2 (Wrong Password)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 401 or 403', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([401, 403]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"pruefungsamt-fb2@university.de\",\n    \"password\": \"WrongPassword!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login - STUDENT FB3 (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201 (Created)', function() {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Response has token', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.token).to.be.a('string');",
+                  "    pm.collectionVariables.set('student_fb3_token', jsonData.token);",
+                  "});",
+                  "",
+                  "pm.test('Save user ID', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    if (jsonData.userId) {",
+                  "        pm.collectionVariables.set('student_fb3_id', jsonData.userId);",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('User has STUDENT role', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.roles).to.include('STUDENT');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"student@university.de\",\n    \"password\": \"StudentPassword123!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login - STUDENT FB3 (Wrong Password)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 401 or 403', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([401, 403]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"student@university.de\",\n    \"password\": \"WrongPassword!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login - STUDENT FB2 (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201 (Created)', function() {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Response has token', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.token).to.be.a('string');",
+                  "    pm.collectionVariables.set('student_fb2_token', jsonData.token);",
+                  "});",
+                  "",
+                  "pm.test('Save user ID', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    if (jsonData.userId) {",
+                  "        pm.collectionVariables.set('student_fb2_id', jsonData.userId);",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('User has STUDENT role', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.roles).to.include('STUDENT');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"informatiker@university.de\",\n    \"password\": \"InformatikPassword123!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login - STUDENT FB2 (Wrong Password)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 401 or 403', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([401, 403]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"informatiker@university.de\",\n    \"password\": \"WrongPassword!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login - STUDENT Multi-Studiengang (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201 (Created)', function() {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Response has token', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.token).to.be.a('string');",
+                  "    pm.collectionVariables.set('student_multi_token', jsonData.token);",
+                  "});",
+                  "",
+                  "pm.test('Save user ID', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    if (jsonData.userId) {",
+                  "        pm.collectionVariables.set('student_multi_id', jsonData.userId);",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('User has multiple studiengaenge', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    if (jsonData.studiengaenge) {",
+                  "        pm.expect(jsonData.studiengaenge.length).to.be.greaterThan(1);",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"multi.student@university.de\",\n    \"password\": \"MultiStudent123!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login - LEHRENDER (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201 (Created)', function() {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test('Response has token', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.token).to.be.a('string');",
+                  "    pm.collectionVariables.set('lehrender_token', jsonData.token);",
+                  "});",
+                  "",
+                  "pm.test('Save user ID', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    if (jsonData.userId) {",
+                  "        pm.collectionVariables.set('lehrender_id', jsonData.userId);",
+                  "    }",
+                  "});",
+                  "",
+                  "pm.test('User has LEHRENDER role', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.roles).to.include('LEHRENDER');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"lehrender@university.de\",\n    \"password\": \"LehrenderPassword123!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login - LEHRENDER (Wrong Password)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 401 or 403', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([401, 403]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"lehrender@university.de\",\n    \"password\": \"WrongPassword!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login - Empty Email",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([400, 401, 422]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"\",\n    \"password\": \"SomePassword123!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login - Empty Password",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([400, 401, 422]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"admin@university.de\",\n    \"password\": \"\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login - Invalid Email Format",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400 or 401', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([400, 401, 422]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"invalid-email-format\",\n    \"password\": \"SomePassword123!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login - SQL Injection Attempt",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is not 200', function() {",
+                  "    pm.expect(pm.response.code).to.not.equal(200);",
+                  "});",
+                  "",
+                  "pm.test('No SQL error in response', function() {",
+                  "    var responseText = pm.response.text().toLowerCase();",
+                  "    pm.expect(responseText).to.not.include('sql');",
+                  "    pm.expect(responseText).to.not.include('syntax');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"admin@university.de' OR '1'='1\",\n    \"password\": \"' OR '1'='1\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. STUDENT Tests",
+      "item": [
+        {
+          "name": "STUDENT FB3 Tests",
+          "item": [
+            {
+              "name": "STUDENT FB3 - Get Own Profile (Success)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status code is 200', function() {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('Response contains user data', function() {",
+                      "    var jsonData = pm.response.json();",
+                      "    pm.expect(jsonData.email).to.exist;",
+                      "    pm.expect(jsonData.email).to.eql('student@university.de');",
+                      "});",
+                      "",
+                      "pm.test('User has correct studiengaenge', function() {",
+                      "    var jsonData = pm.response.json();",
+                      "    if (jsonData.studiengaenge) {",
+                      "        pm.expect(jsonData.studiengaenge).to.include.members(['Luftverkehrsmanagement_-_Aviation_Management_dual_BA', 'Accounting_and_Finance_MA']);",
+                      "    }",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{student_fb3_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/users/{{student_fb3_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "users",
+                    "{{student_fb3_id}}"
+                  ]
+                },
+                "description": "Student kann sein eigenes Profil über /api/users/{id} abrufen. Die ID wird beim Login gespeichert."
+              },
+              "response": []
+            },
+            {
+              "name": "STUDENT FB3 - Try Access All Users (Should FAIL)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status code is 403 Forbidden', function() {",
+                      "    pm.expect(pm.response.code).to.be.oneOf([401, 403]);",
+                      "});",
+                      "",
+                      "pm.test('Access denied message', function() {",
+                      "    var jsonData = pm.response.json();",
+                      "    pm.expect(jsonData.message || jsonData.error).to.exist;",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{student_fb3_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/users",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "users"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "STUDENT FB3 - Try Create User (Should FAIL)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status code is 403 Forbidden', function() {",
+                      "    pm.expect(pm.response.code).to.be.oneOf([401, 403]);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{student_fb3_token}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"email\": \"new.student@university.de\",\n    \"password\": \"NewStudent123!\",\n    \"firstName\": \"New\",\n    \"lastName\": \"Student\",\n    \"roles\": [\"STUDENT\"],\n    \"studiengang\": \"Informatik_BA\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/users",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "users"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "STUDENT FB3 - Try Create ADMIN (Should FAIL)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status code is 403 Forbidden', function() {",
+                      "    pm.expect(pm.response.code).to.be.oneOf([401, 403]);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{student_fb3_token}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"email\": \"fake.admin@university.de\",\n    \"password\": \"FakeAdmin123!\",\n    \"firstName\": \"Fake\",\n    \"lastName\": \"Admin\",\n    \"roles\": [\"ADMIN\"]\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/users",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "users"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "STUDENT FB3 - Try Delete User (Should FAIL)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status code is 403 Forbidden', function() {",
+                      "    pm.expect(pm.response.code).to.be.oneOf([401, 403]);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{student_fb3_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/users/{{admin_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "users",
+                    "{{admin_id}}"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "STUDENT FB3 - Try Deactivate User (Should FAIL)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status code is 403 Forbidden', function() {",
+                      "    pm.expect(pm.response.code).to.be.oneOf([401, 403]);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{student_fb3_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/users/{{admin_id}}/deactivate",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "users",
+                    "{{admin_id}}",
+                    "deactivate"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "STUDENT FB3 - Try Access Tenants (Should FAIL)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status code is 403 Forbidden', function() {",
+                      "    pm.expect(pm.response.code).to.be.oneOf([401, 403]);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{student_fb3_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/tenants",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "tenants"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "STUDENT FB3 - Try Create Tenant (Should FAIL)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status code is 403 Forbidden', function() {",
+                      "    pm.expect(pm.response.code).to.be.oneOf([401, 403]);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{student_fb3_token}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"name\": \"Fake Tenant\",\n    \"identifier\": \"FAKE-TENANT\",\n    \"description\": \"Student trying to create tenant\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/tenants",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "tenants"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "STUDENT FB3 - Try Access Other Student FB2 (Should FAIL)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status code is 403 Forbidden', function() {",
+                      "    pm.expect(pm.response.code).to.be.oneOf([401, 403, 404]);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{student_fb3_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/users/{{student_fb2_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "users",
+                    "{{student_fb2_id}}"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "STUDENT FB3 - Access Without Token (Should FAIL)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status code is 401 Unauthorized', function() {",
+                      "    pm.expect(pm.response.code).to.equal(401);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{base_url}}/api/users/{{student_fb3_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "users",
+                    "{{student_fb3_id}}"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "STUDENT FB3 - Invalid Token (Should FAIL)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status code is 401 Unauthorized', function() {",
+                      "    pm.expect(pm.response.code).to.equal(401);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer invalid.token.here"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/users/{{student_fb2_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "users",
+                    "{{student_fb2_id}}"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "STUDENT FB2 Tests",
+          "item": [
+            {
+              "name": "STUDENT FB2 - Get Own Profile (Success)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status code is 200', function() {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('Response contains user data', function() {",
+                      "    var jsonData = pm.response.json();",
+                      "    pm.expect(jsonData.email).to.exist;",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{student_fb2_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/users/{{student_fb2_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "users",
+                    "{{student_fb2_id}}"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "STUDENT FB2 - Try Access All Users (Should FAIL)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status code is 403 Forbidden', function() {",
+                      "    pm.expect(pm.response.code).to.be.oneOf([401, 403]);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{student_fb2_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/users",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "users"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "STUDENT FB2 - Try Create PRUEFUNGSAMT (Should FAIL)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status code is 403 Forbidden', function() {",
+                      "    pm.expect(pm.response.code).to.be.oneOf([401, 403]);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{student_fb2_token}}"
+                  },
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"email\": \"fake.pruefungsamt@university.de\",\n    \"password\": \"FakePruefung123!\",\n    \"firstName\": \"Fake\",\n    \"lastName\": \"Pruefungsamt\",\n    \"roles\": [\"PRUEFUNGSAMT\"],\n    \"fachbereich\": \"FB2-DEPT\"\n}"
+                },
+                "url": {
+                  "raw": "{{base_url}}/api/users",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "users"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "STUDENT FB2 - Try Access FB3 User (Should FAIL)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status code is 403 or 404', function() {",
+                      "    pm.expect(pm.response.code).to.be.oneOf([401, 403, 404]);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{student_fb2_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/users/{{student_fb3_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "users",
+                    "{{student_fb3_id}}"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "STUDENT FB2 - Try Activate User (Should FAIL)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status code is 403 Forbidden', function() {",
+                      "    pm.expect(pm.response.code).to.be.oneOf([401, 403]);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{student_fb2_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/users/{{admin_id}}/activate",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "users",
+                    "{{admin_id}}",
+                    "activate"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "STUDENT FB2 - Try Delete Tenant (Should FAIL)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status code is 403 Forbidden', function() {",
+                      "    pm.expect(pm.response.code).to.be.oneOf([401, 403, 405]);",
+                      "});"
+                    ],
+                    "type": "text/javascript",
+                    "packages": {},
+                    "requests": {}
+                  }
+                }
+              ],
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{student_fb2_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/tenants/{{tenant_fb3_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "tenants",
+                    "{{tenant_fb3_id}}"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "STUDENT Multi-Studiengang Tests",
+          "item": [
+            {
+              "name": "STUDENT Multi - Get Own Profile (Success)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status code is 200', function() {",
+                      "    pm.response.to.have.status(200);",
+                      "});",
+                      "",
+                      "pm.test('Response contains multiple studiengaenge', function() {",
+                      "    var jsonData = pm.response.json();",
+                      "    if (jsonData.studiengaenge) {",
+                      "        pm.expect(jsonData.studiengaenge).to.be.an('array');",
+                      "    }",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{student_multi_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/users/{{student_multi_id}}",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "users",
+                    "{{student_multi_id}}"
+                  ]
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "STUDENT Multi - Try Admin Endpoint (Should FAIL)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test('Status code is 403 Forbidden', function() {",
+                      "    pm.expect(pm.response.code).to.be.oneOf([401, 403]);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{student_multi_token}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{base_url}}/api/users",
+                  "host": [
+                    "{{base_url}}"
+                  ],
+                  "path": [
+                    "api",
+                    "users"
+                  ]
+                }
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. ADMIN Tests",
+      "item": [
+        {
+          "name": "ADMIN - Get All Users (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has paging structure', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('content');",
+                  "    pm.expect(jsonData).to.have.property('totalElements');",
+                  "    pm.expect(jsonData).to.have.property('totalPages');",
+                  "    pm.expect(jsonData).to.have.property('currentPage');",
+                  "    pm.expect(jsonData).to.have.property('pageSize');",
+                  "});",
+                  "",
+                  "pm.test('Content is array', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.content).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/users?page=0&size=10",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0",
+                  "description": "Seitennummer (0-basiert)"
+                },
+                {
+                  "key": "size",
+                  "value": "10",
+                  "description": "Anzahl Elemente pro Seite (max 100)"
+                },
+                {
+                  "key": "studiengang",
+                  "value": "Informatik_BA",
+                  "description": "Filter nach Studiengang (z.B. Informatik_BA, Accounting_and_Finance_MA, Luftverkehrsmanagement_-_Aviation_Management_dual_BA)",
+                  "disabled": true
+                },
+                {
+                  "key": "role",
+                  "value": "STUDENT",
+                  "description": "Filter nach Rolle (ADMIN, PRUEFUNGSAMT, STUDENT, LEHRENDER)",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "ACTIVE",
+                  "description": "Filter nach Status (ACTIVE, INACTIVE, PENDING, SUSPENDED)",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Holt alle User mit Paging. Optional Filter nach studiengang, role und status."
+          },
+          "response": []
+        },
+        {
+          "name": "ADMIN - Get All Tenants (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/tenants",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tenants"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "ADMIN - Create STUDENT (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "if(jsonData.id) pm.collectionVariables.set('new_student_id', jsonData.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"test.student@university.de\",\n    \"password\": \"TestStudent123!\",\n    \"firstName\": \"Test\",\n    \"lastName\": \"Student\",\n    \"roles\": [\"STUDENT\"],\n    \"studiengang\": \"Informatik_BA\",\n    \"fachbereich\": \"FB2-DEPT\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "ADMIN - Create LEHRENDER (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "if(jsonData.id) pm.collectionVariables.set('new_lehrender_id', jsonData.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"test.lehrender@university.de\",\n    \"password\": \"TestLehrender123!\",\n    \"firstName\": \"Test\",\n    \"lastName\": \"Lehrender\",\n    \"roles\": [\"LEHRENDER\"],\n    \"fachbereich\": \"FB3-DEPT\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "ADMIN - Create PRUEFUNGSAMT (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "if(jsonData.id) pm.collectionVariables.set('new_pruefungsamt_id', jsonData.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"test.pruefungsamt@university.de\",\n    \"password\": \"TestPruefung123!\",\n    \"firstName\": \"Test\",\n    \"lastName\": \"Pruefungsamt\",\n    \"roles\": [\"PRUEFUNGSAMT\"],\n    \"fachbereich\": \"FB3-DEPT\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "ADMIN - Update Credentials (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test.student.updated@university.de\",\n  \"password\": \"UpdatedStudent123!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/users/{{new_student_id}}/credentials",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{new_student_id}}",
+                "credentials"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "ADMIN - Deactivate User (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 204]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/users/{{new_student_id}}/deactivate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{new_student_id}}",
+                "deactivate"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "ADMIN - Activate User (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 204]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/users/{{new_student_id}}/activate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{new_student_id}}",
+                "activate"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "ADMIN - Update User Data (Name) (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has user data', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.firstName).to.equal('Max');",
+                  "    pm.expect(jsonData.lastName).to.equal('Mustermann');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Max\",\n  \"lastName\": \"Mustermann\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/users/{{new_student_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{new_student_id}}"
+              ]
+            },
+            "description": "Admin kann den Namen (firstName, lastName) eines Users ändern"
+          }
+        },
+        {
+          "name": "ADMIN - Delete User (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200 or 204', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 204]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/users/{{new_student_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{new_student_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "ADMIN - Create Tenant (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "if(jsonData.id) pm.collectionVariables.set('new_tenant_id', jsonData.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"Test Fachbereich\",\n    \"identifier\": \"TEST-FB\",\n    \"description\": \"Test Fachbereich für Tests\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/tenants",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tenants"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "ADMIN - Deactivate Tenant (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 204]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/tenants/{{new_tenant_id}}/deactivate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tenants",
+                "{{new_tenant_id}}",
+                "deactivate"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "ADMIN - Activate Tenant (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 204]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/tenants/{{new_tenant_id}}/activate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tenants",
+                "{{new_tenant_id}}",
+                "activate"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "ADMIN - Invalid User ID (Should FAIL)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 404', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([400, 404]);",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/users/invalid-uuid-here",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "invalid-uuid-here"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "ADMIN - Non-existent User (Should FAIL)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 404', function() {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/users/00000000-0000-0000-0000-000000000000",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "00000000-0000-0000-0000-000000000000"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "ADMIN - Invalid Endpoint (Should FAIL)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 404', function() {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/invalid-endpoint",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "invalid-endpoint"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "ADMIN - Create User Duplicate Email (Should FAIL)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 400 or 409', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([400, 409]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"admin@university.de\",\n    \"password\": \"Test123!\",\n    \"firstName\": \"Duplicate\",\n    \"lastName\": \"Admin\",\n    \"roles\": [\"ADMIN\"]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "4. PRUEFUNGSAMT FB3 Tests",
+      "item": [
+        {
+          "name": "PA FB3 - Get Users in Own Tenant (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has paging structure', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('content');",
+                  "    pm.expect(jsonData).to.have.property('totalElements');",
+                  "    pm.expect(jsonData).to.have.property('totalPages');",
+                  "});",
+                  "",
+                  "pm.test('Content is array', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.content).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_fb3_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/users?page=0&size=10",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0",
+                  "description": "Seitennummer (0-basiert)"
+                },
+                {
+                  "key": "size",
+                  "value": "10",
+                  "description": "Anzahl Elemente pro Seite"
+                },
+                {
+                  "key": "studiengang",
+                  "value": "Accounting_and_Finance_MA",
+                  "description": "Filter nach Studiengang (Accounting_and_Finance_MA, Luftverkehrsmanagement_-_Aviation_Management_dual_BA)",
+                  "disabled": true
+                },
+                {
+                  "key": "role",
+                  "value": "STUDENT",
+                  "description": "Filter nach Rolle (STUDENT, LEHRENDER)",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "ACTIVE",
+                  "description": "Filter nach Status (ACTIVE, INACTIVE)",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "PRUEFUNGSAMT FB3 kann nur User aus eigenem Tenant (FB3) abrufen. Optionale Filter für studiengang, role, status."
+          },
+          "response": []
+        },
+        {
+          "name": "PA FB3 - Create STUDENT in Own FB (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200/201', function() {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "var j = pm.response.json(); if(j.id){ pm.collectionVariables.set('student_by_pruefungsamt_fb3_id', j.id);}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_fb3_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"stud.pa.fb3@university.de\",\n  \"password\": \"StudPaFb3!123\",\n  \"firstName\": \"Student\",\n  \"lastName\": \"PA-FB3\",\n  \"roles\": [\"STUDENT\"],\n  \"studiengang\": \"Luftverkehrsmanagement_-_Aviation_Management_dual_BA\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "PA FB3 - Update STUDENT Credentials (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', ()=> pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_fb3_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"stud.pa.fb3.updated@university.de\",\n  \"password\": \"StudPaFb3!456\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/users/{{student_by_pruefungsamt_fb3_id}}/credentials",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{student_by_pruefungsamt_fb3_id}}",
+                "credentials"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "PA FB3 - Deactivate STUDENT (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200/204', ()=> pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_fb3_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/users/{{student_by_pruefungsamt_fb3_id}}/deactivate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{student_by_pruefungsamt_fb3_id}}",
+                "deactivate"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "PA FB3 - Activate STUDENT (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200/204', ()=> pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_fb3_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/users/{{student_by_pruefungsamt_fb3_id}}/activate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{student_by_pruefungsamt_fb3_id}}",
+                "activate"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "PA FB3 - Update STUDENT Data (Name) (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has updated name', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.firstName).to.equal('Peter');",
+                  "    pm.expect(jsonData.lastName).to.equal('Schmidt');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_fb3_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Peter\",\n  \"lastName\": \"Schmidt\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/users/{{student_by_pruefungsamt_fb3_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{student_by_pruefungsamt_fb3_id}}"
+              ]
+            },
+            "description": "Prüfungsamt FB3 kann Namen eines Students im eigenen Tenant ändern"
+          }
+        },
+        {
+          "name": "PA FB3 - Try Create ADMIN (Should FAIL)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('403/401 expected', ()=> pm.expect(pm.response.code).to.be.oneOf([401,403]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_fb3_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin.try@university.de\",\n  \"password\": \"AdminTry123!\",\n  \"firstName\": \"Admin\",\n  \"lastName\": \"Try\",\n  \"roles\": [\"ADMIN\"]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "PA FB3 - Try Access FB2 Student (Should FAIL)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('403/404 expected', ()=> pm.expect(pm.response.code).to.be.oneOf([401,403,404]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_fb3_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/users/{{student_fb2_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{student_fb2_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "PA FB3 - Try Delete User (Should FAIL)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('403/401 expected', ()=> pm.expect(pm.response.code).to.be.oneOf([401,403]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_fb3_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/users/{{student_by_pruefungsamt_fb3_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{student_by_pruefungsamt_fb3_id}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "5. PRUEFUNGSAMT FB2 Tests",
+      "item": [
+        {
+          "name": "PA FB2 - Get Users in Own Tenant (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has paging structure', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('content');",
+                  "    pm.expect(jsonData).to.have.property('totalElements');",
+                  "    pm.expect(jsonData).to.have.property('totalPages');",
+                  "});",
+                  "",
+                  "pm.test('Content is array', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.content).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_fb2_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/users?page=0&size=10",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0",
+                  "description": "Seitennummer (0-basiert)"
+                },
+                {
+                  "key": "size",
+                  "value": "10",
+                  "description": "Anzahl Elemente pro Seite"
+                },
+                {
+                  "key": "studiengang",
+                  "value": "Informatik_BA",
+                  "description": "Filter nach Studiengang (Informatik_BA)",
+                  "disabled": true
+                },
+                {
+                  "key": "role",
+                  "value": "STUDENT",
+                  "description": "Filter nach Rolle (STUDENT, LEHRENDER)",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "ACTIVE",
+                  "description": "Filter nach Status (ACTIVE, INACTIVE)",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "PRUEFUNGSAMT FB2 kann nur User aus eigenem Tenant (FB2) abrufen. Optionale Filter für studiengang, role, status."
+          },
+          "response": []
+        },
+        {
+          "name": "PA FB2 - Create STUDENT in Own FB (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200/201', ()=> pm.expect(pm.response.code).to.be.oneOf([200,201]));",
+                  "var j = pm.response.json(); if(j.id){ pm.collectionVariables.set('student_by_pruefungsamt_fb2_id', j.id);}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_fb2_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"stud.pa.fb2@university.de\",\n  \"password\": \"StudPaFb2!123\",\n  \"firstName\": \"Student\",\n  \"lastName\": \"PA-FB2\",\n  \"roles\": [\"STUDENT\"],\n  \"studiengang\": \"Informatik_BA\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "PA FB2 - Update STUDENT Credentials (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', ()=> pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_fb2_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"stud.pa.fb2.updated@university.de\",\n  \"password\": \"StudPaFb2!456\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/users/{{student_by_pruefungsamt_fb2_id}}/credentials",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{student_by_pruefungsamt_fb2_id}}",
+                "credentials"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "PA FB2 - Create LEHRENDER in Own FB (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200/201', ()=> pm.expect(pm.response.code).to.be.oneOf([200,201]));",
+                  "var j = pm.response.json(); if(j.id){ pm.collectionVariables.set('lehrender_by_pruefungsamt_fb2_id', j.id);}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_fb2_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"lehr.pa.fb2@university.de\",\n  \"password\": \"LehrPaFb2!123\",\n  \"firstName\": \"Lehrender\",\n  \"lastName\": \"PA-FB2\",\n  \"roles\": [\"LEHRENDER\"],\n  \"fachbereich\": \"FB2-DEPT\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "PA FB2 - Deactivate STUDENT (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200/204', ()=> pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_fb2_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/users/{{student_by_pruefungsamt_fb2_id}}/deactivate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{student_by_pruefungsamt_fb2_id}}",
+                "deactivate"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "PA FB2 - Activate STUDENT (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200/204', ()=> pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_fb2_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/users/{{student_by_pruefungsamt_fb2_id}}/activate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{student_by_pruefungsamt_fb2_id}}",
+                "activate"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "PA FB2 - Update STUDENT Data (Name) (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('Response has updated name', function() {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.firstName).to.equal('Anna');",
+                  "    pm.expect(jsonData.lastName).to.equal('Müller');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_fb2_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Anna\",\n  \"lastName\": \"Müller\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/users/{{student_by_pruefungsamt_fb2_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{student_by_pruefungsamt_fb2_id}}"
+              ]
+            },
+            "description": "Prüfungsamt FB2 kann Namen eines Students im eigenen Tenant ändern"
+          }
+        },
+        {
+          "name": "PA FB2 - Try Access FB3 Student (Should FAIL)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('403/404 expected', ()=> pm.expect(pm.response.code).to.be.oneOf([401,403,404]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_fb2_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/users/{{student_fb3_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{student_fb3_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "PA FB2 - Try Create ADMIN (Should FAIL)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('403/401 expected', ()=> pm.expect(pm.response.code).to.be.oneOf([401,403]));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{pruefungsamt_fb2_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin.try.fb2@university.de\",\n  \"password\": \"AdminTry123!\",\n  \"firstName\": \"Admin\",\n  \"lastName\": \"Try\",\n  \"roles\": [\"ADMIN\"]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "6. LEHRENDER Tests",
+      "item": [
+        {
+          "name": "LEH - Get Own Profile (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function(){ pm.response.to.have.status(200); });",
+                  "var j = pm.response.json(); pm.expect(j.email).to.exist;"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{lehrender_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/users/{{lehrender_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{lehrender_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "LEH - Get Users (Should FAIL)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 403', function(){ pm.response.to.have.status(403); });",
+                  ""
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "packages": {},
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{lehrender_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "LEH - Try Create STUDENT (Should FAIL)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Expect 401/403', function(){ pm.expect(pm.response.code).to.be.oneOf([401,403]); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{lehrender_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"leh.create.student@university.de\",\n  \"password\": \"LehStud!123\",\n  \"firstName\": \"New\",\n  \"lastName\": \"Student\",\n  \"roles\": [\"STUDENT\"],\n  \"studiengang\": \"Informatik_BA\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "LEH - Try Deactivate User (Should FAIL)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Expect 401/403', function(){ pm.expect(pm.response.code).to.be.oneOf([401,403]); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{lehrender_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/users/{{student_fb3_id}}/deactivate",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users",
+                "{{student_fb3_id}}",
+                "deactivate"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "LEH - Try Tenants List (Should FAIL)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Expect 401/403', function(){ pm.expect(pm.response.code).to.be.oneOf([401,403]); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{lehrender_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/tenants",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tenants"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "LEH - Invalid Endpoint (Should FAIL)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 404', function(){ pm.response.to.have.status(404); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{lehrender_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/not-exist",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "not-exist"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "7. Tenant Management Tests",
+      "item": [
+        {
+          "name": "TENANT - Add Studiengang to Tenant (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200/201', function(){ pm.expect(pm.response.code).to.be.oneOf([200,201]); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"studiengang\": \"Marketing_BA\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/tenants/{{new_tenant_id}}/studiengaenge",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tenants",
+                "{{new_tenant_id}}",
+                "studiengaenge"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "TENANT - Remove Studiengang from Tenant (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200/204', function(){ pm.expect(pm.response.code).to.be.oneOf([200,204]); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"studiengang\": \"Marketing_BA\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/tenants/{{new_tenant_id}}/studiengaenge",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tenants",
+                "{{new_tenant_id}}",
+                "studiengaenge"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "TENANT - Update Description and Allowed Studiengaenge (Success)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', function(){ pm.response.to.have.status(200); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Updated description for tests\",\n  \"allowedStudiengaenge\": [\"Marketing_BA\"]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/tenants/{{new_tenant_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tenants",
+                "{{new_tenant_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "TENANT - Remove Non-existing Studiengang (Should FAIL)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Expect 400/404', function(){ pm.expect(pm.response.code).to.be.oneOf([400,404]); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"studiengang\": \"NotThere\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/tenants/{{new_tenant_id}}/studiengaenge",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tenants",
+                "{{new_tenant_id}}",
+                "studiengaenge"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "TENANT - Create Duplicate Identifier (Should FAIL)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Expect 400/409', function(){ pm.expect(pm.response.code).to.be.oneOf([400,409]); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Duplicate FB\",\n  \"identifier\": \"TEST-FB\",\n  \"description\": \"Duplicate\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/tenants",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tenants"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "TENANT - Get Tenants Without Token (Should FAIL)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 401', function(){ pm.response.to.have.status(401); });"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/tenants",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "tenants"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "exec": [
+          "// Auto-inject Authorization header from active_token if missing",
+          "if (!pm.request.headers.has('Authorization')) {",
+          "  var t = pm.collectionVariables.get('active_token');",
+          "  if (t) pm.request.headers.add({key: 'Authorization', value: 'Bearer ' + t});",
+          "}",
+          "",
+          "// Ensure JSON Content-Type if raw body present and header missing",
+          "try {",
+          "  if (pm.request.body && pm.request.body.mode === 'raw' && !pm.request.headers.has('Content-Type')) {",
+          "    pm.request.headers.add({key:'Content-Type', value:'application/json'});",
+          "  }",
+          "} catch(e) {}"
+        ],
+        "type": "text/javascript"
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "gateway_test_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "gateway_created_user_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "admin_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "admin_id",
+      "value": "aaaaaaaa-aaaa-aaaa-aaaa-000000000001",
+      "type": "string"
+    },
+    {
+      "key": "pruefungsamt_fb3_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "pruefungsamt_fb3_id",
+      "value": "aaaaaaaa-aaaa-aaaa-aaaa-000000000002",
+      "type": "string"
+    },
+    {
+      "key": "pruefungsamt_fb2_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "pruefungsamt_fb2_id",
+      "value": "aaaaaaaa-aaaa-aaaa-aaaa-000000000006",
+      "type": "string"
+    },
+    {
+      "key": "student_fb3_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "student_fb3_id",
+      "value": "aaaaaaaa-aaaa-aaaa-aaaa-000000000003",
+      "type": "string"
+    },
+    {
+      "key": "student_fb2_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "student_fb2_id",
+      "value": "aaaaaaaa-aaaa-aaaa-aaaa-000000000007",
+      "type": "string"
+    },
+    {
+      "key": "student_multi_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "student_multi_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "lehrender_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "lehrender_id",
+      "value": "aaaaaaaa-aaaa-aaaa-aaaa-000000000004",
+      "type": "string"
+    },
+    {
+      "key": "tenant_fb2_id",
+      "value": "22222222-2222-2222-2222-222222222222",
+      "type": "string"
+    },
+    {
+      "key": "tenant_fb3_id",
+      "value": "11111111-1111-1111-1111-111111111111",
+      "type": "string"
+    },
+    {
+      "key": "new_user_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "new_tenant_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "student_by_pruefungsamt_fb3_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "student_by_pruefungsamt_fb2_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "lehrender_by_pruefungsamt_fb2_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "new_student_id",
+      "value": ""
+    },
+    {
+      "key": "new_lehrender_id",
+      "value": ""
+    },
+    {
+      "key": "new_pruefungsamt_id",
+      "value": ""
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: gateway-service
+
+
+logging:
+  level:
+    root: INFO
+    "[org.springframework.cloud.gateway]": DEBUG
+    "[com.university.gateway_service]": DEBUG
+
+jwt:
+  secret: ${JWT_SECRET:meinSuperGeheimerSchluessel1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ}
+
+gateway:
+  rate-limit:
+    enabled: true
+    replenishRate: 10     # Tokens pro Fenster (z.B. Minute)
+    burstCapacity: 10     # Maximale Tokens im Bucket (Burst)
+    windowSeconds: 60     # Fenstergröße in Sekunden

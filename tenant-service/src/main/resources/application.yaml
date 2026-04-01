@@ -1,0 +1,20 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: tenant_service
+
+logging:
+  level:
+    root: INFO
+    "[com.university.tenant_service]": DEBUG
+
+# API-Key Authentication fuer Service-to-Service Kommunikation
+apikey:
+  key: ${API_SERVICE_KEY:tenant-service-key-abcde-secure-key}
+  name: ${API_SERVICE_NAME:tenant-service}
+  allowed:
+    auth-service: ${API_SERVICE_KEY_AUTH:auth-service-key-12345-secure-key}
+    user-service: ${API_SERVICE_KEY_USER:user-service-key-67890-secure-key}
+    tenant-service: ${API_SERVICE_KEY_TENANT:tenant-service-key-abcde-secure-key}

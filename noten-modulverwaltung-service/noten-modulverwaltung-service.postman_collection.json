@@ -1,0 +1,1566 @@
+{
+  "info": {
+    "_postman_id": "nm-service-001",
+    "name": "Noten-Modul-Service",
+    "description": "Vollständige Postman Collection für den Noten-Modulverwaltung-Service (GraphQL)\n\n**Features:**\n- Notenverwaltung (Anlegen, Setzen, Validieren)\n- Modulverwaltung (CRUD)\n- Studenteninformationen\n- Rollenbasierte Tests (Admin, Prüfungsamt, Lehrender, Student)\n- Multi-Tenant Support\n\n**Rollen:**\n- ADMIN: Vollzugriff auf alle Operationen\n- PRUEFUNGSAMT: Noten anlegen, validieren, Module verwalten\n- LEHRENDER: Noten setzen, eigene Noten einsehen\n- STUDENT: Eigene Noten einsehen\n\n**Base URL:** http://localhost:8082/graphql\n**GraphiQL:** http://localhost:8082/graphiql",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8082",
+      "type": "string"
+    },
+    {
+      "key": "graphql_endpoint",
+      "value": "{{base_url}}/graphql",
+      "type": "string"
+    },
+    {
+      "key": "auth_service_url",
+      "value": "http://localhost:8085/api/v1/auth/login",
+      "type": "string",
+      "description": "URL zum Auth-Service für Token-Generierung"
+    },
+    {
+      "key": "admin_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "pruefungsamt_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "lehrender_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "student_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "tenant_id",
+      "value": "11111111-1111-1111-1111-111111111111",
+      "type": "string",
+      "description": "Standard Tenant-ID (FB3, UUID)"
+    },
+    {
+      "key": "tenant_id_fb2",
+      "value": "22222222-2222-2222-2222-222222222222",
+      "type": "string",
+      "description": "Tenant-ID (FB2, UUID)"
+    },
+    {
+      "key": "test_note_id",
+      "value": "",
+      "type": "string",
+      "description": "Wird dynamisch gesetzt beim Anlegen einer Note"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Token-Validierung: Warnt wenn Token fehlt",
+          "const requestName = pm.info.requestName;",
+          "const requestAuth = pm.request.auth;",
+          "",
+          "// Überspringe Login-Requests",
+          "if (requestName && requestName.toLowerCase().includes('login')) {",
+          "    return;",
+          "}",
+          "",
+          "// Prüfe ob Token benötigt und verfügbar ist",
+          "if (requestAuth && requestAuth.type === 'bearer') {",
+          "    const bearerToken = requestAuth.bearer.find(item => item.key === 'token');",
+          "    if (bearerToken && bearerToken.value) {",
+          "        const tokenVarName = bearerToken.value.replace(/[{}]/g, '');",
+          "        const currentToken = pm.collectionVariables.get(tokenVarName);",
+          "        if (!currentToken || currentToken === '') {",
+          "            console.warn(`${tokenVarName} fehlt - führe Login-Request aus!`);",
+          "        }",
+          "    }",
+          "}",
+          ""
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Setup - Authentication",
+      "item": [
+        {
+          "name": "Login as Admin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    const jsonData = pm.response.json();",
+                  "    if (jsonData.token) {",
+                  "        pm.collectionVariables.set('admin_token', jsonData.token);",
+                  "        console.log('✓ Admin Token gespeichert');",
+                  "    }",
+                  "} else {",
+                  "    console.log('✗ Login fehlgeschlagen: Status ' + pm.response.code);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@university.de\",\n  \"password\": \"AdminPassword123!\"\n}"
+            },
+            "url": "{{auth_service_url}}",
+            "description": "Login als Admin - speichert JWT Token in Collection Variable"
+          }
+        },
+        {
+          "name": "Login as Prüfungsamt",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    const jsonData = pm.response.json();",
+                  "    if (jsonData.token) {",
+                  "        pm.collectionVariables.set('pruefungsamt_token', jsonData.token);",
+                  "        console.log('✓ Prüfungsamt Token gespeichert');",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"pruefungsamt@university.de\",\n  \"password\": \"PruefungPassword123!\"\n}"
+            },
+            "url": "{{auth_service_url}}",
+            "description": "Login als Prüfungsamt"
+          }
+        },
+        {
+          "name": "Login as Lehrender",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    const jsonData = pm.response.json();",
+                  "    if (jsonData.token) {",
+                  "        pm.collectionVariables.set('lehrender_token', jsonData.token);",
+                  "        console.log('✓ Lehrender Token gespeichert');",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"lehrender@university.de\",\n  \"password\": \"LehrenderPassword123!\"\n}"
+            },
+            "url": "{{auth_service_url}}",
+            "description": "Login als Lehrender"
+          }
+        },
+        {
+          "name": "Login as Student",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    const jsonData = pm.response.json();",
+                  "    if (jsonData.token) {",
+                  "        pm.collectionVariables.set('student_token', jsonData.token);",
+                  "        console.log('✓ Student Token gespeichert');",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"student@university.de\",\n  \"password\": \"StudentPassword123!\"\n}"
+            },
+            "url": "{{auth_service_url}}",
+            "description": "Login als Student"
+          }
+        }
+      ],
+      "description": "Authentifizierung gegen den Auth-Service. Führe alle Logins aus um Tokens zu erhalten."
+    },
+    {
+      "name": "1. Noten Queries",
+      "item": [
+        {
+          "name": "Alle Noten (Admin/Prüfungsamt)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query AlleNoten {\n  alleNoten {\n    id\n    matrikelnummer\n    tenantId\n    modulId\n    modulName\n    lehrendenMatrikelnummer\n    note\n    status\n    studiengang\n    semester\n    erstelltAm\n    aktualisiertAm\n  }\n}",
+                "variables": ""
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Ruft alle Noten ab (nur für Admin/Prüfungsamt)"
+          }
+        },
+        {
+          "name": "Noten von Student (mit Matrikelnummer)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{student_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query NotenVonStudent($matrikelnummer: String, $tenantIds: [ID!]) {\n  notenVonStudent(matrikelnummer: $matrikelnummer, tenantIds: $tenantIds) {\n    id\n    matrikelnummer\n    modulId\n    modulName\n    note\n    status\n    lehrendenMatrikelnummer\n    studiengang\n    semester\n    erstelltAm\n  }\n}",
+                "variables": "{\n  \"matrikelnummer\": \"3\",\n  \"tenantIds\": [\"{{tenant_id}}\"]\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Noten eines bestimmten Studenten abrufen"
+          }
+        },
+        {
+          "name": "Noten von Student (FB3 - Variante)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{student_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query NotenVonStudent($matrikelnummer: String, $tenantIds: [ID!]) {\n  notenVonStudent(matrikelnummer: $matrikelnummer, tenantIds: $tenantIds) {\n    id\n    matrikelnummer\n    modulId\n    modulName\n    note\n    status\n    lehrendenMatrikelnummer\n    studiengang\n    semester\n    erstelltAm\n  }\n}",
+                "variables": "{\n  \"matrikelnummer\": \"3\",\n  \"tenantIds\": [\"{{tenant_id}}\"]\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Noten eines FB3-Studenten abrufen (Variante)"
+          }
+        },
+        {
+          "name": "Noten von Student (aus JWT)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{student_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query NotenVonStudent {\n  notenVonStudent {\n    id\n    modulId\n    modulName\n    note\n    status\n    studiengang\n    semester\n  }\n}",
+                "variables": ""
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Matrikelnummer und Tenant werden automatisch aus dem JWT-Token extrahiert"
+          }
+        },
+        {
+          "name": "Note nach ID",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query NoteById($id: ID!) {\n  noteById(id: $id) {\n    id\n    matrikelnummer\n    tenantId\n    modulId\n    modulName\n    note\n    status\n    lehrendenMatrikelnummer\n    erstelltAm\n    aktualisiertAm\n  }\n}",
+                "variables": "{\n  \"id\": \"{{test_note_id}}\"\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Einzelne Note nach UUID abrufen"
+          }
+        },
+        {
+          "name": "Noten nach Status",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{pruefungsamt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query NotenNachStatus($status: NotenStatus!) {\n  notenNachStatus(status: $status) {\n    id\n    matrikelnummer\n    modulName\n    note\n    status\n    lehrendenMatrikelnummer\n    erstelltAm\n  }\n}",
+                "variables": "{\n  \"status\": \"TO_VALIDATE\"\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Noten nach Status filtern (ADD, TO_VALIDATE, PUBLISHED)"
+          }
+        },
+        {
+          "name": "Noten von Lehrendem",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{lehrender_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query NotenVonLehrender($lehrendenMatrikelnummer: String, $tenantIds: [ID!], $modulId: Int) {\n  notenVonLehrenderNachModulUndStatus(\n    lehrendenMatrikelnummer: $lehrendenMatrikelnummer\n    tenantIds: $tenantIds\n    modulId: $modulId\n  ) {\n    id\n    matrikelnummer\n    modulId\n    modulName\n    note\n    status\n    erstelltAm\n  }\n}",
+                "variables": "{\n  \"lehrendenMatrikelnummer\": \"4\"\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Noten eines Lehrenden (filtert auf ADD-Status)"
+          }
+        },
+        {
+          "name": "Noten von Lehrendem (alle)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{lehrender_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query NotenVonLehrender($lehrendenMatrikelnummer: String) {\n  notenVonLehrender(lehrendenMatrikelnummer: $lehrendenMatrikelnummer) {\n    id\n    matrikelnummer\n    modulId\n    modulName\n    note\n    status\n    erstelltAm\n  }\n}",
+                "variables": "{\n  \"lehrendenMatrikelnummer\": \"4\"\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Alle Noten eines Lehrenden (ohne Modul-Filter)"
+          }
+        },
+        {
+          "name": "Noten zur Validierung (Prüfungsamt)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{pruefungsamt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query NotenZuValidieren($tenantIds: [ID!], $studiengang: String) {\n  notenPruefungsamtZuValidieren(\n    tenantIds: $tenantIds\n    studiengang: $studiengang\n  ) {\n    id\n    matrikelnummer\n    modulId\n    modulName\n    note\n    status\n    lehrendenMatrikelnummer\n    studiengang\n    semester\n    erstelltAm\n  }\n}",
+                "variables": "{\n  \"tenantIds\": [\"{{tenant_id}}\"]\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Alle zur Validierung anstehenden Noten mit optionalen Filtern"
+          }
+        },
+        {
+          "name": "Noten zur Validierung (Prüfungsamt, FB3 - Variante)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{pruefungsamt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query NotenZuValidieren($tenantIds: [ID!], $studiengang: String) {\n  notenPruefungsamtZuValidieren(\n    tenantIds: $tenantIds\n    studiengang: $studiengang\n  ) {\n    id\n    matrikelnummer\n    modulId\n    modulName\n    note\n    status\n    lehrendenMatrikelnummer\n    studiengang\n    semester\n    erstelltAm\n  }\n}",
+                "variables": "{\n  \"tenantIds\": [\"{{tenant_id}}\"]\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "TO_VALIDATE-Noten fuer FB3-tenant (Variante)"
+          }
+        },
+        {
+          "name": "Student Info mit Noten",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{student_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query StudentInfo($matrikelnummer: String!) {\n  studentInfo(matrikelnummer: $matrikelnummer) {\n    matrikelnummer\n    vorname\n    nachname\n    studiengang\n    semester\n    notendurchschnitt\n    anzahlBestandeneModule\n    noten {\n      id\n      modulId\n      modulName\n      note\n      status\n      lehrendenMatrikelnummer\n      erstelltAm\n    }\n  }\n}",
+                "variables": "{\n  \"matrikelnummer\": \"3\"\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Vollständige Studenteninfo inkl. Notendurchschnitt und allen Noten"
+          }
+        }
+      ],
+      "description": "GraphQL Queries zum Abrufen von Noten"
+    },
+    {
+      "name": "2. Noten Mutations",
+      "item": [
+        {
+          "name": "Note anlegen (Prüfungsamt)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const jsonData = pm.response.json();",
+                  "    if (jsonData.data && jsonData.data.noteAnlegen && jsonData.data.noteAnlegen.id) {",
+                  "        pm.collectionVariables.set('test_note_id', jsonData.data.noteAnlegen.id);",
+                  "        console.log('Note ID gespeichert: ' + jsonData.data.noteAnlegen.id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{pruefungsamt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation NoteAnlegen($input: NoteErstellenInput!) {\n  noteAnlegen(input: $input) {\n    id\n    matrikelnummer\n    tenantId\n    modulId\n    modulName\n    lehrendenMatrikelnummer\n    status\n    studiengang\n    semester\n    erstelltAm\n  }\n}",
+                "variables": "{\n  \"input\": {\n    \"matrikelnummer\": \"3\",\n    \"tenantId\": \"{{tenant_id}}\",\n    \"modulId\": 1,\n    \"lehrendenMatrikelnummer\": \"4\",\n    \"studiengang\": \"Accounting_and_Finance_MA\",\n    \"semester\": \"1\"\n  }\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Neue Note im Status ADD anlegen (nur Prüfungsamt/Admin)"
+          }
+        },
+        {
+          "name": "Note anlegen (Prüfungsamt, FB3 - Variante)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const jsonData = pm.response.json();",
+                  "    if (jsonData.data && jsonData.data.noteAnlegen && jsonData.data.noteAnlegen.id) {",
+                  "        pm.collectionVariables.set('test_note_id', jsonData.data.noteAnlegen.id);",
+                  "        console.log('Note ID gespeichert: ' + jsonData.data.noteAnlegen.id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{pruefungsamt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation NoteAnlegen($input: NoteErstellenInput!) {\n  noteAnlegen(input: $input) {\n    id\n    matrikelnummer\n    tenantId\n    modulId\n    modulName\n    lehrendenMatrikelnummer\n    status\n    studiengang\n    semester\n    erstelltAm\n  }\n}",
+                "variables": "{\n  \"input\": {\n    \"matrikelnummer\": \"3\",\n    \"tenantId\": \"{{tenant_id}}\",\n    \"modulId\": 1,\n    \"lehrendenMatrikelnummer\": \"4\",\n    \"studiengang\": \"Accounting_and_Finance_MA\",\n    \"semester\": \"1\"\n  }\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Neue Note im Status ADD anlegen (FB3 Tenant, Variante)"
+          }
+        },
+        {
+          "name": "Note setzen (Lehrender)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{lehrender_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation NoteSetzen($input: NoteSetzenInput!) {\n  noteSetzen(input: $input) {\n    id\n    matrikelnummer\n    modulName\n    note\n    status\n    aktualisiertAm\n  }\n}",
+                "variables": "{\n  \"input\": {\n    \"noteIds\": [\"{{test_note_id}}\"],\n    \"note\": 1.7\n  }\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Note eintragen und Status auf TO_VALIDATE setzen (nur Lehrender)"
+          }
+        },
+        {
+          "name": "Mehrere Noten setzen (Lehrender)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{lehrender_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation MehrereNotenSetzen($input: NoteSetzenInput!) {\n  noteSetzen(input: $input) {\n    id\n    matrikelnummer\n    modulName\n    note\n    status\n  }\n}",
+                "variables": "{\n  \"input\": {\n    \"noteIds\": [\n      \"UUID-1-HIER-EINFÜGEN\",\n      \"UUID-2-HIER-EINFÜGEN\"\n    ],\n    \"note\": 2.3\n  }\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Mehrere Noten gleichzeitig setzen"
+          }
+        },
+        {
+          "name": "Noten validieren (Prüfungsamt)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{pruefungsamt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation NotenValidieren($input: NoteValidierenInput!) {\n  notenValidieren(input: $input) {\n    id\n    matrikelnummer\n    modulName\n    note\n    status\n    aktualisiertAm\n  }\n}",
+                "variables": "{\n  \"input\": {\n    \"noteIds\": [\"{{test_note_id}}\"]\n  }\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Noten validieren und auf PUBLISHED setzen (nur Prüfungsamt)"
+          }
+        },
+        {
+          "name": "Mehrere Noten validieren (Prüfungsamt)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{pruefungsamt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation MehrereNotenValidieren($input: NoteValidierenInput!) {\n  notenValidieren(input: $input) {\n    id\n    matrikelnummer\n    modulName\n    note\n    status\n  }\n}",
+                "variables": "{\n  \"input\": {\n    \"noteIds\": [\n      \"UUID-1-HIER-EINFÜGEN\",\n      \"UUID-2-HIER-EINFÜGEN\"\n    ]\n  }\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Mehrere Noten gleichzeitig validieren"
+          }
+        },
+        {
+          "name": "Note löschen (Prüfungsamt)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{pruefungsamt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation NoteLoeschen($id: ID!) {\n  noteLoeschen(id: $id)\n}",
+                "variables": "{\n  \"id\": \"{{test_note_id}}\"\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Note löschen (nur Prüfungsamt/Admin)"
+          }
+        }
+      ],
+      "description": "GraphQL Mutations für Notenverwaltung"
+    },
+    {
+      "name": "3. Modul Queries",
+      "item": [
+        {
+          "name": "Alle Module",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{student_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query AlleModule {\n  alleModule {\n    id\n    modulId\n    tenantId\n    modulName\n    ects\n    gewichtung\n    studiengang\n    semester\n    beschreibung\n  }\n}",
+                "variables": ""
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Alle verfügbaren Module abrufen"
+          }
+        },
+        {
+          "name": "Modul nach ID",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{student_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query ModulById($modulId: Int!) {\n  modulById(modulId: $modulId) {\n    id\n    modulId\n    tenantId\n    modulName\n    ects\n    gewichtung\n    studiengang\n    semester\n    beschreibung\n  }\n}",
+                "variables": "{\n  \"modulId\": 1\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Einzelnes Modul nach Modul-ID abrufen"
+          }
+        },
+        {
+          "name": "Module nach Studiengang",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{student_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query ModuleNachStudiengang($studiengang: String!) {\n  moduleNachStudiengang(studiengang: $studiengang) {\n    id\n    modulId\n    modulName\n    ects\n    gewichtung\n    semester\n    beschreibung\n  }\n}",
+                "variables": "{\n  \"studiengang\": \"Luftverkehrsmanagement_-_Aviation_Management_dual_BA\"\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Module eines bestimmten Studiengangs abrufen"
+          }
+        }
+      ],
+      "description": "GraphQL Queries für Modulinformationen"
+    },
+    {
+      "name": "4. Modul Mutations",
+      "item": [
+        {
+          "name": "Modul erstellen (Prüfungsamt)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{pruefungsamt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation ModulErstellen($input: ModulErstellenInput!) {\n  modulErstellen(input: $input) {\n    id\n    modulId\n    tenantId\n    modulName\n    ects\n    gewichtung\n    studiengang\n    semester\n    beschreibung\n  }\n}",
+                "variables": "{\n  \"input\": {\n    \"modulId\": 999,\n    \"tenantId\": \"{{tenant_id}}\",\n    \"modulName\": \"Test Modul\",\n    \"ects\": 5,\n    \"gewichtung\": 0.057,\n    \"studiengang\": \"Accounting_and_Finance_MA\",\n    \"semester\": 2,\n    \"beschreibung\": \"Ein Test-Modul für Postman Tests\"\n  }\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Neues Modul erstellen (nur Prüfungsamt/Admin)"
+          }
+        },
+        {
+          "name": "Modul erstellen (Prüfungsamt, FB3 - Variante)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{pruefungsamt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation ModulErstellen($input: ModulErstellenInput!) {\n  modulErstellen(input: $input) {\n    id\n    modulId\n    tenantId\n    modulName\n    ects\n    gewichtung\n    studiengang\n    semester\n    beschreibung\n  }\n}",
+                "variables": "{\n  \"input\": {\n    \"modulId\": 700,\n    \"tenantId\": \"{{tenant_id}}\",\n    \"modulName\": \"FB2 Test Modul\",\n    \"ects\": 5,\n    \"gewichtung\": 0.05,\n    \"studiengang\": \"Accounting_and_Finance_MA\",\n    \"semester\": 1,\n    \"beschreibung\": \"Test-Modul fuer FB2\"\n  }\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Neues Modul erstellen (FB3 Tenant, Variante)"
+          }
+        },
+        {
+          "name": "Modul aktualisieren (Prüfungsamt)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{pruefungsamt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation ModulAktualisieren($modulId: Int!, $input: ModulErstellenInput!) {\n  modulAktualisieren(modulId: $modulId, input: $input) {\n    id\n    modulId\n    modulName\n    ects\n    gewichtung\n    beschreibung\n  }\n}",
+                "variables": "{\n  \"modulId\": 999,\n  \"input\": {\n    \"modulId\": 999,\n    \"tenantId\": \"{{tenant_id}}\",\n    \"modulName\": \"Test Modul (aktualisiert)\",\n    \"ects\": 6,\n    \"gewichtung\": 0.065,\n    \"studiengang\": \"Accounting_and_Finance_MA\",\n    \"semester\": 3,\n    \"beschreibung\": \"Aktualisierte Beschreibung\"\n  }\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Bestehendes Modul aktualisieren (nur Prüfungsamt/Admin)"
+          }
+        },
+        {
+          "name": "Modul aktualisieren (Prüfungsamt, FB3 - Variante)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{pruefungsamt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation ModulAktualisieren($modulId: Int!, $input: ModulErstellenInput!) {\n  modulAktualisieren(modulId: $modulId, input: $input) {\n    id\n    modulId\n    modulName\n    ects\n    gewichtung\n    beschreibung\n  }\n}",
+                "variables": "{\n  \"modulId\": 700,\n  \"input\": {\n    \"modulId\": 700,\n    \"tenantId\": \"{{tenant_id}}\",\n    \"modulName\": \"FB2 Test Modul (Update)\",\n    \"ects\": 6,\n    \"gewichtung\": 0.06,\n    \"studiengang\": \"Accounting_and_Finance_MA\",\n    \"semester\": 2,\n    \"beschreibung\": \"Update FB2\"\n  }\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Bestehendes FB3-Modul aktualisieren (Variante)"
+          }
+        },
+        {
+          "name": "Modul löschen (Prüfungsamt)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{pruefungsamt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation ModulLoeschen($modulId: Int!) {\n  modulLoeschen(modulId: $modulId)\n}",
+                "variables": "{\n  \"modulId\": 999\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Modul löschen (nur Prüfungsamt/Admin)"
+          }
+        },
+        {
+          "name": "Modul löschen (Prüfungsamt, FB3 - Variante)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{pruefungsamt_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation ModulLoeschen($modulId: Int!) {\n  modulLoeschen(modulId: $modulId)\n}",
+                "variables": "{\n  \"modulId\": 700\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "FB3-Modul löschen (Variante)"
+          }
+        }
+      ],
+      "description": "GraphQL Mutations für Modulverwaltung"
+    },
+    {
+      "name": "5. Test-Workflows",
+      "item": [
+        {
+          "name": "Workflow: Note erstellen → setzen → validieren",
+          "item": [
+            {
+              "name": "1. Note anlegen (Prüfungsamt)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const jsonData = pm.response.json();",
+                      "    if (jsonData.data && jsonData.data.noteAnlegen) {",
+                      "        const noteId = jsonData.data.noteAnlegen.id;",
+                      "        pm.collectionVariables.set('test_note_id', noteId);",
+                      "        console.log('Schritt 1: Note angelegt mit ID: ' + noteId);",
+                      "        console.log('Status: ' + jsonData.data.noteAnlegen.status);",
+                      "    }",
+                      "} else {",
+                      "    console.log('Schritt 1 fehlgeschlagen');",
+                      "}"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{pruefungsamt_token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "graphql",
+                  "graphql": {
+                    "query": "mutation NoteAnlegen($input: NoteErstellenInput!) {\n  noteAnlegen(input: $input) {\n    id\n    matrikelnummer\n    modulId\n    modulName\n    status\n    erstelltAm\n  }\n}",
+                    "variables": "{\n  \"input\": {\n    \"matrikelnummer\": \"3\",\n    \"tenantId\": \"{{tenant_id}}\",\n    \"modulId\": 1,\n    \"lehrendenMatrikelnummer\": \"4\",\n    \"studiengang\": \"Accounting_and_Finance_MA\",\n    \"semester\": \"1\"\n  }\n}"
+                  }
+                },
+                "url": "{{graphql_endpoint}}"
+              }
+            },
+            {
+              "name": "2. Note setzen (Lehrender)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const jsonData = pm.response.json();",
+                      "    if (jsonData.data && jsonData.data.noteSetzen) {",
+                      "        console.log('Schritt 2: Note gesetzt');",
+                      "        console.log('Note: ' + jsonData.data.noteSetzen[0].note);",
+                      "        console.log('Status: ' + jsonData.data.noteSetzen[0].status);",
+                      "    }",
+                      "} else {",
+                      "    console.log('Schritt 2 fehlgeschlagen');",
+                      "}"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{lehrender_token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "graphql",
+                  "graphql": {
+                    "query": "mutation NoteSetzen($input: NoteSetzenInput!) {\n  noteSetzen(input: $input) {\n    id\n    note\n    status\n    aktualisiertAm\n  }\n}",
+                    "variables": "{\n  \"input\": {\n    \"noteIds\": [\"{{test_note_id}}\"],\n    \"note\": 1.3\n  }\n}"
+                  }
+                },
+                "url": "{{graphql_endpoint}}"
+              }
+            },
+            {
+              "name": "3. Note validieren (Prüfungsamt)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const jsonData = pm.response.json();",
+                      "    if (jsonData.data && jsonData.data.notenValidieren) {",
+                      "        console.log('Schritt 3: Note validiert');",
+                      "        console.log('Status: ' + jsonData.data.notenValidieren[0].status);",
+                      "    }",
+                      "} else {",
+                      "    console.log('Schritt 3 fehlgeschlagen');",
+                      "}"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{pruefungsamt_token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "graphql",
+                  "graphql": {
+                    "query": "mutation NotenValidieren($input: NoteValidierenInput!) {\n  notenValidieren(input: $input) {\n    id\n    note\n    status\n    aktualisiertAm\n  }\n}",
+                    "variables": "{\n  \"input\": {\n    \"noteIds\": [\"{{test_note_id}}\"]\n  }\n}"
+                  }
+                },
+                "url": "{{graphql_endpoint}}"
+              }
+            },
+            {
+              "name": "4. Verifizierung - Note prüfen",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const jsonData = pm.response.json();",
+                      "    if (jsonData.data && jsonData.data.notenVonStudent) {",
+                      "        console.log('Workflow abgeschlossen!');",
+                      "        console.log('Anzahl Noten: ' + jsonData.data.notenVonStudent.length);",
+                      "    }",
+                      "}"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{student_token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "graphql",
+                  "graphql": {
+                    "query": "query NotenVonStudent($matrikelnummer: String!) {\n  notenVonStudent(matrikelnummer: $matrikelnummer) {\n    id\n    modulName\n    note\n    status\n  }\n}",
+                    "variables": "{\n  \"matrikelnummer\": \"3\"\n}"
+                  }
+                },
+                "url": "{{graphql_endpoint}}"
+              }
+            }
+          ],
+          "description": "Vollständiger Test-Workflow für Notenerfassung"
+        },
+        {
+          "name": "Workflow: Modul erstellen → bearbeiten → löschen",
+          "item": [
+            {
+              "name": "1. Modul erstellen",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{pruefungsamt_token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "graphql",
+                  "graphql": {
+                    "query": "mutation ModulErstellen($input: ModulErstellenInput!) {\n  modulErstellen(input: $input) {\n    id\n    modulId\n    modulName\n    ects\n  }\n}",
+                    "variables": "{\n  \"input\": {\n    \"modulId\": 888,\n    \"tenantId\": \"{{tenant_id}}\",\n    \"modulName\": \"Workflow Test Modul\",\n    \"ects\": 5,\n    \"gewichtung\": 0.05,\n    \"studiengang\": \"Accounting_and_Finance_MA\"\n  }\n}"
+                  }
+                },
+                "url": "{{graphql_endpoint}}"
+              }
+            },
+            {
+              "name": "2. Modul aktualisieren",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{pruefungsamt_token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "graphql",
+                  "graphql": {
+                    "query": "mutation ModulAktualisieren($modulId: Int!, $input: ModulErstellenInput!) {\n  modulAktualisieren(modulId: $modulId, input: $input) {\n    modulName\n    ects\n  }\n}",
+                    "variables": "{\n  \"modulId\": 888,\n  \"input\": {\n    \"modulId\": 888,\n    \"tenantId\": \"{{tenant_id}}\",\n    \"modulName\": \"Workflow Test Modul (UPDATE)\",\n    \"ects\": 7,\n    \"gewichtung\": 0.07,\n    \"studiengang\": \"Accounting_and_Finance_MA\"\n  }\n}"
+                  }
+                },
+                "url": "{{graphql_endpoint}}"
+              }
+            },
+            {
+              "name": "3. Modul löschen",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{pruefungsamt_token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "graphql",
+                  "graphql": {
+                    "query": "mutation ModulLoeschen($modulId: Int!) {\n  modulLoeschen(modulId: $modulId)\n}",
+                    "variables": "{\n  \"modulId\": 888\n}"
+                  }
+                },
+                "url": "{{graphql_endpoint}}"
+              }
+            }
+          ],
+          "description": "Vollständiger CRUD-Workflow für Module"
+        }
+      ],
+      "description": "End-to-End Test-Workflows"
+    },
+    {
+      "name": "6. Negative Tests",
+      "item": [
+        {
+          "name": "Unauthorized - Kein Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query {\n  alleNoten {\n    id\n  }\n}",
+                "variables": ""
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Sollte 401 Unauthorized zurückgeben"
+          }
+        },
+        {
+          "name": "Student versucht Note anzulegen",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{student_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation NoteAnlegen($input: NoteErstellenInput!) {\n  noteAnlegen(input: $input) {\n    id\n  }\n}",
+                "variables": "{\n  \"input\": {\n    \"matrikelnummer\": \"3\",\n    \"tenantId\": \"{{tenant_id}}\",\n    \"modulId\": 1,\n    \"lehrendenMatrikelnummer\": \"4\"\n  }\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Sollte 403 Forbidden zurückgeben (Student hat keine Berechtigung)"
+          }
+        },
+        {
+          "name": "Ungültige Note (außerhalb 1.0-5.0)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{lehrender_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation NoteSetzen($input: NoteSetzenInput!) {\n  noteSetzen(input: $input) {\n    id\n  }\n}",
+                "variables": "{\n  \"input\": {\n    \"noteIds\": [\"{{test_note_id}}\"],\n    \"note\": 6.0\n  }\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Sollte Fehler zurückgeben (Note muss zwischen 1.0 und 5.0 liegen)"
+          }
+        },
+        {
+          "name": "Nicht existierende Note abrufen",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{admin_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query NoteById($id: ID!) {\n  noteById(id: $id) {\n    id\n  }\n}",
+                "variables": "{\n  \"id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+              }
+            },
+            "url": "{{graphql_endpoint}}",
+            "description": "Sollte null oder Fehler zurückgeben"
+          }
+        }
+      ],
+      "description": "Negative Tests - Fehlerbehandlung und Berechtigungen"
+    }
+  ]
+}

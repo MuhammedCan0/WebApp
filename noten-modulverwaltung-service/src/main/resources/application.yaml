@@ -1,0 +1,55 @@
+server:
+  port: 8082
+  address: 0.0.0.0
+
+spring:
+  application:
+    name: noten-modul-service
+
+  # H2 Database Configuration (Development)
+  datasource:
+    url: jdbc:h2:mem:notendb
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+
+  # JPA Configuration
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  # H2 Console (nur für Entwicklung)
+  h2:
+    console:
+      enabled: ${H2_CONSOLE_ENABLED:false}
+      path: /h2-console
+
+  # GraphQL Configuration
+  graphql:
+    graphiql:
+      enabled: ${GRAPHIQL_ENABLED:true}
+      path: /graphiql
+    path: /graphql
+
+# Logging
+logging:
+  level:
+    "de.frauas.notenmodulservice": DEBUG
+    "org.springframework.graphql": DEBUG
+
+# JWT Configuration (muss mit Auth-Service und Gateway übereinstimmen!)
+jwt:
+  # WICHTIG: In Produktion MUSS das Secret über Umgebungsvariable gesetzt werden!
+  secret: ${JWT_SECRET:meinSuperGeheimerSchluessel1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ}
+
+user-service:
+  base-url: ${USER_SERVICE_BASE_URL:http://localhost:8081}
+
+apikey:
+  name: ${API_SERVICE_NAME:noten-modulverwaltung-service}
+  key: ${API_SERVICE_KEY:noten-modulverwaltung-service-key-xyz123}

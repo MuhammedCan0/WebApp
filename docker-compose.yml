@@ -1,0 +1,103 @@
+services:
+  user-service:
+    build:
+      context: ./user-service
+      dockerfile: Dockerfile
+    container_name: user-service
+    ports:
+      - "8081:8081"
+    environment:
+      - JWT_SECRET=meinSuperGeheimerSchluessel1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ
+      - AUTH_SERVICE_BASE_URL=http://auth-service:8085
+      - TENANT_SERVICE_BASE_URL=http://tenant-service:8084
+      - API_SERVICE_NAME=user-service
+      - API_SERVICE_KEY=user-service-key-67890-secure-key
+      - API_SERVICE_KEY_AUTH=auth-service-key-12345-secure-key
+      - API_SERVICE_KEY_USER=user-service-key-67890-secure-key
+      - API_SERVICE_KEY_TENANT=tenant-service-key-abcde-secure-key
+      - API_SERVICE_KEY_NOTEN_MODUL=noten-modulverwaltung-service-key-xyz123
+    depends_on:
+      - auth-service
+      - tenant-service
+
+  noten-modulverwaltung-service:
+    build:
+      context: ./noten-modulverwaltung-service
+      dockerfile: Dockerfile
+    container_name: noten-modulverwaltung-service
+    ports:
+      - "8082:8082"
+    environment:
+      - JWT_SECRET=meinSuperGeheimerSchluessel1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ
+      - USER_SERVICE_BASE_URL=http://user-service:8081
+      - API_SERVICE_NAME=noten-modulverwaltung-service
+      - API_SERVICE_KEY=noten-modulverwaltung-service-key-xyz123
+    depends_on:
+      - user-service
+
+  notenberechnung-service:
+    build:
+      context: ./notenberechnung-service/notenberechnung-service
+      dockerfile: Dockerfile
+    container_name: notenberechnung-service
+    ports:
+      - "8083:8083"
+    environment:
+      - JWT_SECRET=meinSuperGeheimerSchluessel1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ
+      - GRAPHQL_CLIENT_URL=http://noten-modulverwaltung-service:8082/graphql
+    depends_on:
+      - noten-modulverwaltung-service
+
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: auth-service
+    ports:
+      - "8085:8085"
+    environment:
+      - JWT_SECRET=meinSuperGeheimerSchluessel1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ
+      - USER_SERVICE_BASE_URL=http://user-service:8081
+      - TENANT_SERVICE_BASE_URL=http://tenant-service:8084
+      - API_SERVICE_NAME=auth-service
+      - API_SERVICE_KEY=auth-service-key-12345-secure-key
+      - API_SERVICE_KEY_AUTH=auth-service-key-12345-secure-key
+      - API_SERVICE_KEY_USER=user-service-key-67890-secure-key
+      - API_SERVICE_KEY_TENANT=tenant-service-key-abcde-secure-key
+    depends_on:
+      - tenant-service
+
+  tenant-service:
+    build:
+      context: ./tenant-service
+      dockerfile: Dockerfile
+    container_name: tenant-service
+    ports:
+      - "8084:8084"
+    environment:
+      - API_SERVICE_NAME=tenant-service
+      - API_SERVICE_KEY=tenant-service-key-abcde-secure-key
+      - API_SERVICE_KEY_AUTH=auth-service-key-12345-secure-key
+      - API_SERVICE_KEY_USER=user-service-key-67890-secure-key
+      - API_SERVICE_KEY_TENANT=tenant-service-key-abcde-secure-key
+
+  gateway-service:
+    build:
+      context: ./gateway-service
+      dockerfile: Dockerfile
+    container_name: gateway-service
+    ports:
+      - "8080:8080"
+    environment:
+      - USER_SERVICE_URL=http://user-service:8081
+      - AUTH_SERVICE_URL=http://auth-service:8085
+      - TENANT_SERVICE_URL=http://tenant-service:8084
+      - NOTEN_MODUL_SERVICE_URL=http://noten-modulverwaltung-service:8082
+      - NOTENBERECHNUNG_SERVICE_URL=http://notenberechnung-service:8083
+      - JWT_SECRET=meinSuperGeheimerSchluessel1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ
+    depends_on:
+      - user-service
+      - auth-service
+      - tenant-service
+      - noten-modulverwaltung-service
+      - notenberechnung-service

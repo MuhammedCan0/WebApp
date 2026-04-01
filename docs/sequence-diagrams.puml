@@ -1,0 +1,285 @@
+@startuml Login-Prozess
+title Sequenzdiagramm: Login-Prozess
+
+skinparam backgroundColor #FEFEFE
+skinparam sequenceArrowThickness 2
+skinparam participantPadding 20
+
+actor "Client" as Client
+participant "Gateway\n(8080)" as Gateway
+participant "Auth-Service\n(8085)" as Auth
+participant "User-Service\n(8081)" as User
+database "Auth-DB" as AuthDB
+database "User-DB" as UserDB
+
+== Login ==
+
+Client -> Gateway: POST /api/auth/login\n{email, password}
+activate Gateway
+
+Gateway -> Auth: POST /api/v1/auth/login\n{email, password}
+activate Auth
+
+Auth -> AuthDB: findByEmail(email)
+AuthDB --> Auth: AuthCredentials
+
+alt Credentials nicht gefunden
+    Auth --> Gateway: 401 Unauthorized
+    Gateway --> Client: 401 Unauthorized
+else Passwort falsch
+    Auth -> Auth: BCrypt.matches(password, hash)
+    Auth --> Gateway: 401 Unauthorized
+    Gateway --> Client: 401 Unauthorized
+else Credentials gültig
+    Auth -> Auth: BCrypt.matches(password, hash) ✓
+    
+    Auth -> User: GET /internal/by-mn/{matrikelnummer}\n(X-Service-API-Key)
+    activate User
+    User -> UserDB: findByMatrikelnummer()
+    UserDB --> User: User
+    User --> Auth: User {roles, tenantIds, status}
+    deactivate User
+    
+    alt User Status != ACTIVE
+        Auth --> Gateway: 403 Forbidden\n"User nicht aktiv"
+        Gateway --> Client: 403 Forbidden
+    else User aktiv
+        Auth -> Auth: JWT generieren\n(sub, email, roles, tenantIds,\nmatrikelnummer, 1h Gültigkeit)
+        Auth --> Gateway: 200 OK\n{token, userId, roles, expiresAt}
+        deactivate Auth
+        Gateway --> Client: 200 OK\n{token, userId, roles, expiresAt}
+    end
+end
+
+deactivate Gateway
+
+@enduml
+
+' ============================================================
+
+@startuml Notenerfassung-Workflow
+title Sequenzdiagramm: Notenerfassung-Workflow (Lehrender → Prüfungsamt)
+
+skinparam backgroundColor #FEFEFE
+skinparam sequenceArrowThickness 2
+
+actor "Prüfungsamt" as PA
+actor "Lehrender" as Dozent
+actor "Student" as Student
+participant "Gateway\n(8080)" as Gateway
+participant "Noten-Modul-Service\n(8082, GraphQL)" as NotenModul
+database "H2 DB" as H2
+
+== Phase 1: Note anlegen (Prüfungsamt) ==
+
+PA -> Gateway: POST /graphql\nAuthorization: Bearer <JWT>\nmutation { noteAnlegen(...) }
+activate Gateway
+Gateway -> Gateway: JWT validieren\nX-User-* Headers setzen
+Gateway -> NotenModul: POST /graphql\n+ X-User-* Headers
+activate NotenModul
+NotenModul -> NotenModul: Rolle prüfen\n(PRUEFUNGSAMT ✓)
+NotenModul -> NotenModul: Tenant-Zugriff prüfen
+NotenModul -> H2: INSERT Note\n(status=ADD, note=null)
+H2 --> NotenModul: Note (id, status=ADD)
+NotenModul --> Gateway: {data: {noteAnlegen: {...}}}
+deactivate NotenModul
+Gateway --> PA: 200 OK
+deactivate Gateway
+
+== Phase 2: Note setzen (Lehrender) ==
+
+Dozent -> Gateway: POST /graphql\nAuthorization: Bearer <JWT>\nmutation { noteSetzen(...) }
+activate Gateway
+Gateway -> Gateway: JWT validieren
+Gateway -> NotenModul: POST /graphql\n+ X-User-* Headers
+activate NotenModul
+NotenModul -> NotenModul: Rolle prüfen\n(LEHRENDER ✓)
+NotenModul -> H2: SELECT Note WHERE id IN (...)\nAND status = ADD
+H2 --> NotenModul: Note[]
+NotenModul -> NotenModul: Lehrenden-Matrikelnummer\nprüfen (eigene Noten)
+NotenModul -> H2: UPDATE Note\nSET note=2.3, status=TO_VALIDATE
+H2 --> NotenModul: Note (status=TO_VALIDATE)
+NotenModul --> Gateway: {data: {noteSetzen: [...]}}
+deactivate NotenModul
+Gateway --> Dozent: 200 OK
+deactivate Gateway
+
+== Phase 3: Note validieren (Prüfungsamt) ==
+
+PA -> Gateway: POST /graphql\nmutation { notenValidieren(...) }
+activate Gateway
+Gateway -> NotenModul: POST /graphql
+activate NotenModul
+NotenModul -> NotenModul: Rolle prüfen\n(PRUEFUNGSAMT ✓)
+NotenModul -> H2: SELECT Note WHERE status=TO_VALIDATE
+H2 --> NotenModul: Note[]
+NotenModul -> H2: UPDATE Note\nSET status=PUBLISHED
+H2 --> NotenModul: Note (status=PUBLISHED)
+NotenModul --> Gateway: {data: {notenValidieren: [...]}}
+deactivate NotenModul
+Gateway --> PA: 200 OK
+deactivate Gateway
+
+== Phase 4: Note abrufen (Student) ==
+
+Student -> Gateway: POST /graphql\nquery { notenVonStudent(...) }
+activate Gateway
+Gateway -> NotenModul: POST /graphql
+activate NotenModul
+NotenModul -> NotenModul: Rolle prüfen (STUDENT ✓)\nMatrikelnummer = eigene ✓
+NotenModul -> H2: SELECT Note\nWHERE matrikel=... AND status=PUBLISHED
+H2 --> NotenModul: Note[] (nur PUBLISHED)
+NotenModul --> Gateway: {data: {notenVonStudent: [...]}}
+deactivate NotenModul
+Gateway --> Student: 200 OK
+deactivate Gateway
+
+@enduml
+
+' ============================================================
+
+@startuml Studenten-Registrierung
+title Sequenzdiagramm: Studenten-Registrierung
+
+skinparam backgroundColor #FEFEFE
+skinparam sequenceArrowThickness 2
+
+actor "Prüfungsamt" as PA
+participant "Gateway\n(8080)" as Gateway
+participant "User-Service\n(8081)" as User
+participant "Auth-Service\n(8085)" as Auth
+participant "Tenant-Service\n(8084)" as Tenant
+database "User-DB" as UserDB
+database "Auth-DB" as AuthDB
+
+PA -> Gateway: POST /api/users\nAuthorization: Bearer <JWT>\n{firstName, lastName, email,\npassword, matrikelnummer,\nroles, tenantIds}
+activate Gateway
+
+Gateway -> Gateway: JWT validieren\nRolle = PRUEFUNGSAMT ✓
+
+Gateway -> User: POST /api/v1/users
+activate User
+
+User -> Tenant: GET /api/v1/tenants/{id}\n(X-Service-API-Key)
+activate Tenant
+Tenant --> User: Tenant existiert ✓
+deactivate Tenant
+
+User -> User: Validierung:\n- Email unique\n- Matrikelnummer unique\n- Tenant existiert
+
+User -> Auth: POST /api/v1/auth/register-credentials\n(X-Service-API-Key)\n{email, password, matrikelnummer,\nroles, tenantIds}
+activate Auth
+Auth -> Auth: Password hashen (BCrypt)
+Auth -> AuthDB: INSERT AuthCredentials
+AuthDB --> Auth: ✓
+Auth --> User: 201 Created
+deactivate Auth
+
+User -> UserDB: INSERT User
+UserDB --> User: User
+
+User --> Gateway: 201 Created\n{userId, matrikelnummer, ...}
+deactivate User
+
+Gateway --> PA: 201 Created
+deactivate Gateway
+
+@enduml
+
+' ============================================================
+
+@startuml Notenberechnung
+title Sequenzdiagramm: Gesamtnoten-Berechnung nach §12 PO
+
+skinparam backgroundColor #FEFEFE
+skinparam sequenceArrowThickness 2
+
+actor "Student/Prüfungsamt" as Client
+participant "Gateway\n(8080)" as Gateway
+participant "Notenberechnung\n(8083, REST)" as Calc
+participant "Noten-Modul-Service\n(8082, GraphQL)" as NotenModul
+database "H2 DB" as H2
+
+Client -> Gateway: GET /api/grades/{studentId}/average\nAuthorization: Bearer <JWT>
+activate Gateway
+
+Gateway -> Gateway: JWT validieren
+
+Gateway -> Calc: GET /api/grades/{studentId}/average\n+ X-User-* Headers
+activate Calc
+
+Calc -> Calc: Autorisierung prüfen\n(eigene Daten oder PRUEFUNGSAMT)
+
+Calc -> NotenModul: POST /graphql\nquery { notenVonStudent(...)\nalleModule(...) }
+activate NotenModul
+
+NotenModul -> H2: SELECT Note, Modul\nWHERE status=PUBLISHED
+H2 --> NotenModul: Noten + Module
+
+NotenModul --> Calc: {noten: [...], module: [...]}
+deactivate NotenModul
+
+Calc -> Calc: §12 PO Berechnung:\n\nEndnote = Σ(Note × Gewicht) / Σ(Gewicht)\n\n- Zusatzmodule ignorieren\n- Pflichtmodule prüfen\n- Auf 2 Nachkommastellen runden
+
+Calc --> Gateway: 200 OK\n{studentId, durchschnitt: 2.15,\nanzahlModule: 12, ects: 120}
+deactivate Calc
+
+Gateway --> Client: 200 OK
+deactivate Gateway
+
+@enduml
+
+' ============================================================
+
+@startuml JWT-Validierung-Gateway
+title Sequenzdiagramm: JWT-Validierung im Gateway
+
+skinparam backgroundColor #FEFEFE
+skinparam sequenceArrowThickness 2
+
+actor "Client" as Client
+participant "Gateway\n(8080)" as Gateway
+participant "Backend-Service" as Backend
+
+== Geschützter Endpunkt ==
+
+Client -> Gateway: GET /api/users\nAuthorization: Bearer <JWT>
+activate Gateway
+
+Gateway -> Gateway: JwtClaimsExtractionFilter
+
+alt Kein Authorization Header
+    Gateway --> Client: 401 Unauthorized\n{"error": "Missing Authorization header"}
+else Ungültiger Token
+    Gateway -> Gateway: JWT parsen & validieren
+    Gateway --> Client: 401 Unauthorized\n{"error": "Invalid JWT token"}
+else Token abgelaufen
+    Gateway -> Gateway: Ablaufzeit prüfen
+    Gateway --> Client: 401 Unauthorized\n{"error": "JWT token has expired"}
+else Token gültig
+    Gateway -> Gateway: Claims extrahieren:\n- sub → X-User-Id\n- email → X-User-Email\n- role → X-User-Roles\n- tenant_ids → X-User-Tenant-Ids\n- matrikelnummer → X-User-Matrikelnummer
+    
+    Gateway -> Backend: Request + X-User-* Headers
+    activate Backend
+    Backend -> Backend: Autorisierung anhand\nder X-User-* Headers
+    Backend --> Gateway: Response
+    deactivate Backend
+    
+    Gateway --> Client: Response
+end
+
+deactivate Gateway
+
+== Öffentlicher Endpunkt (Login) ==
+
+Client -> Gateway: POST /api/auth/login\n{email, password}
+activate Gateway
+note right of Gateway: Kein JWT erforderlich\n(shouldNotFilter = true)
+Gateway -> Backend: Weiterleitung ohne JWT-Prüfung
+activate Backend
+Backend --> Gateway: {token: "..."}
+deactivate Backend
+Gateway --> Client: {token: "..."}
+deactivate Gateway
+
+@enduml

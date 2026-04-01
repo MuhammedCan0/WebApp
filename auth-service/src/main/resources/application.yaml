@@ -1,0 +1,41 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: auth_service
+
+  output:
+    ansi:
+      enabled: ALWAYS
+
+  web:
+    resources:
+      add-mappings: false
+
+jwt:
+  secret: ${JWT_SECRET:meinSuperGeheimerSchluessel1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ}
+  expiration-ms: ${JWT_EXPIRATION_MS:3600000}
+
+user:
+  service:
+    base-url: ${USER_SERVICE_BASE_URL:http://localhost:8081}
+
+tenant:
+  service:
+    base-url: ${TENANT_SERVICE_BASE_URL:http://localhost:8084}
+
+logging:
+  level:
+    root: INFO
+    "[com.university.auth_service]": DEBUG
+    "[org.springframework.web]": INFO
+
+# API-Key Authentication für Service-to-Service Kommunikation
+apikey:
+  key: ${API_SERVICE_KEY:auth-service-key-12345-secure-key}
+  name: ${API_SERVICE_NAME:auth-service}
+  allowed:
+    auth-service: ${API_SERVICE_KEY_AUTH:auth-service-key-12345-secure-key}
+    user-service: ${API_SERVICE_KEY_USER:user-service-key-67890-secure-key}
+    tenant-service: ${API_SERVICE_KEY_TENANT:tenant-service-key-abcde-secure-key}

@@ -1,0 +1,7 @@
+Docker build und run fuer gateway-service
+
+Build:
+  docker build -t gateway-service:latest .
+
+Run:
+  docker run --rm -p 8080:8080 gateway-service:latest

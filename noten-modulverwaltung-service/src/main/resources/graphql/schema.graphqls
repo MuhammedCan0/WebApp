@@ -1,0 +1,128 @@
+type Query {
+  # Noten Queries
+  alleNoten: [Note!]!
+  # matrikelnummer und tenantIds können bei Studenten/Lehrenden aus dem JWT kommen
+  notenVonStudent(matrikelnummer: String, tenantIds: [ID!]): [Note!]!
+  noteById(id: ID!): Note
+  notenNachStatus(status: NotenStatus!): [Note!]!
+  notenVonLehrender(lehrendenMatrikelnummer: String): [Note!]!
+  notenVonLehrenderNachModulUndStatus(
+    lehrendenMatrikelnummer: String
+    tenantIds: [ID!]
+    modulId: Int
+    matrikelnummer: String
+  ): [Note!]!
+
+  # Prüfungsamt Query: sucht TO_VALIDATE-Noten mit optionalen Filtern
+  notenPruefungsamtZuValidieren(
+    tenantIds: [ID!]
+    modulId: Int
+    matrikelnummer: String
+    lehrendenMatrikelnummer: String
+    studiengang: String
+    semester: String
+  ): [Note!]!
+  
+  # Modul Queries
+  alleModule(tenantIds: [ID!]): [Modul!]!
+  modulById(modulId: Int!, tenantIds: [ID!]): Modul
+  moduleNachStudiengang(studiengang: String!, tenantIds: [ID!]): [Modul!]!
+  
+  # Student Query
+  studentInfo(matrikelnummer: String!): StudentDTO!
+}
+
+type Mutation {
+  # Noten Mutationen
+  # Prüfungsamt oder Admin: legt eine neue Note im Status ADD an
+  noteAnlegen(input: NoteErstellenInput!): Note!
+  # Lehrende: setzt Note-Wert für gegebene IDs und markiert als TO_VALIDATE
+  noteSetzen(input: NoteSetzenInput!): [Note!]!
+  notenValidieren(input: NoteValidierenInput!): [Note!]!
+  noteLoeschen(id: ID!): Boolean!
+  
+  # Modul Mutationen
+  modulErstellen(input: ModulErstellenInput!): Modul!
+  modulAktualisieren(modulId: Int!, input: ModulErstellenInput!): Modul!
+  modulLoeschen(modulId: Int!, tenantId: ID!): Boolean!
+}
+
+# Typen
+type Note {
+  id: ID!
+  matrikelnummer: String!
+  tenantId: ID!
+  modulId: Int!
+  modulName: String
+  lehrendenMatrikelnummer: String!
+  note: Float
+  status: NotenStatus!
+  studiengang: String
+  semester: String
+  erstelltAm: String!
+  aktualisiertAm: String!
+}
+
+type Modul {
+  id: ID!
+  modulId: Int!
+  tenantId: ID!
+  modulName: String!
+  ects: Int!
+  gewichtung: Float!
+  studiengang: String!
+  semester: Int
+  beschreibung: String
+}
+
+type StudentDTO {
+  matrikelnummer: String!
+  firstName: String
+  lastName: String
+  studiengang: String
+  semester: Int
+  noten: [Note!]!
+  anzahlBestandeneModule: Int!
+}
+
+# Enums
+enum NotenStatus {
+  ADD
+  TO_VALIDATE
+  PUBLISHED
+}
+
+# Inputs
+input NoteErstellenInput {
+  id: ID
+  matrikelnummer: String!
+  tenantId: ID!
+  modulId: Int!
+  lehrendenMatrikelnummer: String!
+  studiengang: String
+  semester: String
+}
+
+input NoteSetzenInput {
+  noteIds: [ID!]!
+  # Für Lehrende werden Tenant-IDs aus dem JWT gesetzt; ADMIN muss sie explizit angeben
+  tenantIds: [ID!]
+  note: Float!
+}
+
+input NoteValidierenInput {
+  noteIds: [ID!]!
+  # Für Prüfungsamt werden Tenant-IDs aus dem JWT gesetzt; ADMIN muss sie explizit angeben
+  tenantIds: [ID!]
+}
+
+input ModulErstellenInput {
+  modulId: Int!
+  tenantId: ID!
+  modulName: String!
+  ects: Int!
+  gewichtung: Float!
+  studiengang: String!
+  semester: Int
+  beschreibung: String
+}

@@ -1,0 +1,10 @@
+# Docker Befehle für notenberechnung-service
+
+# 1. In das Service-Verzeichnis wechseln
+cd notenberechnung-service/notenberechnung-service
+
+# 2. Docker Image bauen
+docker build -t notenberechnung-service:latest .
+
+# 3. Container starten
+docker run -p 8083:8083 notenberechnung-service:latest
